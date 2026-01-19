@@ -124,6 +124,9 @@ backend/.env
 backend/.env.*
 !backend/.env.example
 
+# Shell scripts
+*.sh
+
 # Markdown Documentation (except README)
 *.md
 !README.md
