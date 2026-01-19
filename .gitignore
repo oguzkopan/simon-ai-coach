@@ -134,6 +134,8 @@ backend/.env.*
 
 # Firebase
 firebase/
+firebase.json
+.firebaserc
 
 # macOS
 .DS_Store
