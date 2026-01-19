@@ -15,7 +15,7 @@ import (
 // ListSystems returns all pinned systems for the authenticated user
 func ListSystems(fs *firestore.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		uid := middleware.GetUID(c)
+		_ = middleware.GetUID(c) // TODO: Use for filtering user systems
 
 		// TODO: Implement systems repository
 		// Query Firestore for systems where uid == authenticated user
@@ -29,7 +29,7 @@ func ListSystems(fs *firestore.Client) gin.HandlerFunc {
 // CreateSystem creates a new pinned system
 func CreateSystem(fs *firestore.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		uid := middleware.GetUID(c)
+		_ = middleware.GetUID(c) // TODO: Use for ownership
 
 		var req models.System
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -51,7 +51,7 @@ func CreateSystem(fs *firestore.Client) gin.HandlerFunc {
 		// Create system
 		system := models.System{
 			ID:                 uuid.New().String(),
-			UID:                uid,
+			UID:                "", // TODO: Set from uid
 			Title:              req.Title,
 			Checklist:          req.Checklist,
 			ScheduleSuggestion: req.ScheduleSuggestion,
@@ -70,7 +70,7 @@ func CreateSystem(fs *firestore.Client) gin.HandlerFunc {
 // GetSystem returns a specific system by ID
 func GetSystem(fs *firestore.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		uid := middleware.GetUID(c)
+		_ = middleware.GetUID(c) // TODO: Use for access control
 		systemID := c.Param("id")
 
 		if systemID == "" {
@@ -87,7 +87,7 @@ func GetSystem(fs *firestore.Client) gin.HandlerFunc {
 // DeleteSystem deletes a system by ID
 func DeleteSystem(fs *firestore.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		uid := middleware.GetUID(c)
+		_ = middleware.GetUID(c) // TODO: Use for ownership check
 		systemID := c.Param("id")
 
 		if systemID == "" {

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -88,6 +89,15 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 
 		log.Printf("StreamChat: uid=%s, sessionID=%s", uid, sessionID)
 
+		// Parse request body
+		var req struct {
+			Message string `json:"message" binding:"required"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+			return
+		}
+
 		// Initialize SSE
 		flusher, ok := sse.Init(c.Writer)
 		if !ok {
@@ -171,8 +181,8 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 				}
 				fullText += token
 				_ = sse.Data(c.Writer, models.ChatDelta{
-					Kind: "token",
-					Text: token,
+					Kind:  "token",
+					Token: token,
 				})
 				flusher.Flush()
 
