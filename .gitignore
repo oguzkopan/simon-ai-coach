@@ -132,6 +132,9 @@ backend/.env.*
 # Kiro IDE
 .kiro/
 
+# Firebase
+firebase/
+
 # macOS
 .DS_Store
 .AppleDouble
