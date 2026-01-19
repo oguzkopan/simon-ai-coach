@@ -6,6 +6,21 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		6051ACB92F1EC64100894A9B /* FirebaseAI in Frameworks */ = {isa = PBXBuildFile; productRef = 6051ACB82F1EC64100894A9B /* FirebaseAI */; };
+		6051ACBB2F1EC64100894A9B /* FirebaseAILogic in Frameworks */ = {isa = PBXBuildFile; productRef = 6051ACBA2F1EC64100894A9B /* FirebaseAILogic */; };
+		6051ACBD2F1EC64100894A9B /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = 6051ACBC2F1EC64100894A9B /* FirebaseAnalytics */; };
+		6051ACBF2F1EC64100894A9B /* FirebaseAppCheck in Frameworks */ = {isa = PBXBuildFile; productRef = 6051ACBE2F1EC64100894A9B /* FirebaseAppCheck */; };
+		6051ACC12F1EC64100894A9B /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 6051ACC02F1EC64100894A9B /* FirebaseAuth */; };
+		6051ACC32F1EC64100894A9B /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 6051ACC22F1EC64100894A9B /* FirebaseCore */; };
+		6051ACC52F1EC64100894A9B /* FirebaseCrashlytics in Frameworks */ = {isa = PBXBuildFile; productRef = 6051ACC42F1EC64100894A9B /* FirebaseCrashlytics */; };
+		6051ACC72F1EC64100894A9B /* FirebaseDatabase in Frameworks */ = {isa = PBXBuildFile; productRef = 6051ACC62F1EC64100894A9B /* FirebaseDatabase */; };
+		6051ACC92F1EC64100894A9B /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 6051ACC82F1EC64100894A9B /* FirebaseFirestore */; };
+		6051ACCB2F1EC64100894A9B /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = 6051ACCA2F1EC64100894A9B /* FirebaseStorage */; };
+		6051ACCE2F1EC68E00894A9B /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = 6051ACCD2F1EC68E00894A9B /* RevenueCat */; };
+		6051ACD02F1EC68E00894A9B /* RevenueCatUI in Frameworks */ = {isa = PBXBuildFile; productRef = 6051ACCF2F1EC68E00894A9B /* RevenueCatUI */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		6051ACA52F1EBF6400894A9B /* Simon.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Simon.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -23,6 +38,18 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				6051ACBF2F1EC64100894A9B /* FirebaseAppCheck in Frameworks */,
+				6051ACC12F1EC64100894A9B /* FirebaseAuth in Frameworks */,
+				6051ACBB2F1EC64100894A9B /* FirebaseAILogic in Frameworks */,
+				6051ACCB2F1EC64100894A9B /* FirebaseStorage in Frameworks */,
+				6051ACCE2F1EC68E00894A9B /* RevenueCat in Frameworks */,
+				6051ACC52F1EC64100894A9B /* FirebaseCrashlytics in Frameworks */,
+				6051ACB92F1EC64100894A9B /* FirebaseAI in Frameworks */,
+				6051ACC92F1EC64100894A9B /* FirebaseFirestore in Frameworks */,
+				6051ACD02F1EC68E00894A9B /* RevenueCatUI in Frameworks */,
+				6051ACC32F1EC64100894A9B /* FirebaseCore in Frameworks */,
+				6051ACC72F1EC64100894A9B /* FirebaseDatabase in Frameworks */,
+				6051ACBD2F1EC64100894A9B /* FirebaseAnalytics in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +92,18 @@
 			);
 			name = Simon;
 			packageProductDependencies = (
+				6051ACB82F1EC64100894A9B /* FirebaseAI */,
+				6051ACBA2F1EC64100894A9B /* FirebaseAILogic */,
+				6051ACBC2F1EC64100894A9B /* FirebaseAnalytics */,
+				6051ACBE2F1EC64100894A9B /* FirebaseAppCheck */,
+				6051ACC02F1EC64100894A9B /* FirebaseAuth */,
+				6051ACC22F1EC64100894A9B /* FirebaseCore */,
+				6051ACC42F1EC64100894A9B /* FirebaseCrashlytics */,
+				6051ACC62F1EC64100894A9B /* FirebaseDatabase */,
+				6051ACC82F1EC64100894A9B /* FirebaseFirestore */,
+				6051ACCA2F1EC64100894A9B /* FirebaseStorage */,
+				6051ACCD2F1EC68E00894A9B /* RevenueCat */,
+				6051ACCF2F1EC68E00894A9B /* RevenueCatUI */,
 			);
 			productName = Simon;
 			productReference = 6051ACA52F1EBF6400894A9B /* Simon.app */;
@@ -94,6 +133,10 @@
 			);
 			mainGroup = 6051AC9C2F1EBF6400894A9B;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				6051ACB72F1EC64100894A9B /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+				6051ACCC2F1EC68E00894A9B /* XCRemoteSwiftPackageReference "purchases-ios" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 6051ACA62F1EBF6400894A9B /* Products */;
 			projectDirPath = "";
@@ -256,17 +299,23 @@
 				DEVELOPMENT_TEAM = LRMMCR9YYY;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Simon;
+				INFOPLIST_KEY_CFBundleURLTypes = "{ CFBundleURLSchemes = (\"app-1-84366855987-ios-5af4aea34b61da451b3846\", \"com.googleusercontent.apps.84366855987-uubbjca006vl48e5ainkiou88n4os2n6\"); }";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Take photos to share with your coach.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Attach images to coaching sessions for better context.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.simon.app.Simon;
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.simon.ai.coach.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -288,17 +337,23 @@
 				DEVELOPMENT_TEAM = LRMMCR9YYY;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Simon;
+				INFOPLIST_KEY_CFBundleURLTypes = "{ CFBundleURLSchemes = (\"app-1-84366855987-ios-5af4aea34b61da451b3846\", \"com.googleusercontent.apps.84366855987-uubbjca006vl48e5ainkiou88n4os2n6\"); }";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Take photos to share with your coach.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Attach images to coaching sessions for better context.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.simon.app.Simon;
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.simon.ai.coach.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -332,6 +387,88 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		6051ACB72F1EC64100894A9B /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 12.8.0;
+			};
+		};
+		6051ACCC2F1EC68E00894A9B /* XCRemoteSwiftPackageReference "purchases-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/RevenueCat/purchases-ios";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.55.2;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		6051ACB82F1EC64100894A9B /* FirebaseAI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6051ACB72F1EC64100894A9B /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAI;
+		};
+		6051ACBA2F1EC64100894A9B /* FirebaseAILogic */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6051ACB72F1EC64100894A9B /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAILogic;
+		};
+		6051ACBC2F1EC64100894A9B /* FirebaseAnalytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6051ACB72F1EC64100894A9B /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAnalytics;
+		};
+		6051ACBE2F1EC64100894A9B /* FirebaseAppCheck */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6051ACB72F1EC64100894A9B /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAppCheck;
+		};
+		6051ACC02F1EC64100894A9B /* FirebaseAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6051ACB72F1EC64100894A9B /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAuth;
+		};
+		6051ACC22F1EC64100894A9B /* FirebaseCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6051ACB72F1EC64100894A9B /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCore;
+		};
+		6051ACC42F1EC64100894A9B /* FirebaseCrashlytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6051ACB72F1EC64100894A9B /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCrashlytics;
+		};
+		6051ACC62F1EC64100894A9B /* FirebaseDatabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6051ACB72F1EC64100894A9B /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseDatabase;
+		};
+		6051ACC82F1EC64100894A9B /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6051ACB72F1EC64100894A9B /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFirestore;
+		};
+		6051ACCA2F1EC64100894A9B /* FirebaseStorage */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6051ACB72F1EC64100894A9B /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseStorage;
+		};
+		6051ACCD2F1EC68E00894A9B /* RevenueCat */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6051ACCC2F1EC68E00894A9B /* XCRemoteSwiftPackageReference "purchases-ios" */;
+			productName = RevenueCat;
+		};
+		6051ACCF2F1EC68E00894A9B /* RevenueCatUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6051ACCC2F1EC68E00894A9B /* XCRemoteSwiftPackageReference "purchases-ios" */;
+			productName = RevenueCatUI;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 6051AC9D2F1EBF6400894A9B /* Project object */;
 }
