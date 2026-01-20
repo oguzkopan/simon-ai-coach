@@ -19,7 +19,7 @@ final class SettingsViewModel: ObservableObject {
     
     private let apiClient: SimonAPI
     private let purchases: PurchasesService
-    private let authSession: AuthSession
+    private let authManager = AuthenticationManager.shared
     
     var isPro: Bool {
         purchases.isPro
@@ -31,10 +31,9 @@ final class SettingsViewModel: ObservableObject {
         return "\(version) (\(build))"
     }
     
-    init(apiClient: SimonAPI, purchases: PurchasesService, authSession: AuthSession) {
+    init(apiClient: SimonAPI, purchases: PurchasesService) {
         self.apiClient = apiClient
         self.purchases = purchases
-        self.authSession = authSession
         
         // Load context preference
         loadContextPreference()
@@ -65,7 +64,7 @@ final class SettingsViewModel: ObservableObject {
             try await apiClient.deleteAllUserData()
             
             // Sign out after deletion
-            try authSession.signOut()
+            try authManager.signOut()
             
         } catch {
             errorMessage = error.localizedDescription

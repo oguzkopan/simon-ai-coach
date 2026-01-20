@@ -8,13 +8,9 @@
 import SwiftUI
 
 struct SignInView: View {
-    @StateObject private var viewModel: SignInViewModel
+    @StateObject private var viewModel = SignInViewModel()
     @EnvironmentObject private var theme: ThemeStore
     @Environment(\.dismiss) private var dismiss
-    
-    init(authSession: AuthSession) {
-        _viewModel = StateObject(wrappedValue: SignInViewModel(authSession: authSession))
-    }
     
     var body: some View {
         NavigationStack {
@@ -127,6 +123,6 @@ struct SignInView: View {
 }
 
 #Preview {
-    SignInView(authSession: AuthSession())
+    SignInView()
         .environmentObject(ThemeStore())
 }

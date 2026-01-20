@@ -32,7 +32,8 @@ func New(cfg config.Config, fs *firestore.Client, gm *gemini.Client) (*gin.Engin
 	r.Use(middleware.CORS())
 
 	// Public routes
-	r.GET("/healthz", handlers.Health)
+	r.GET("/health", handlers.Health)
+	r.GET("/healthz", handlers.Health) // Keep both for compatibility
 
 	// Initialize auth middleware
 	authMW, err := middleware.NewFirebaseAuth()

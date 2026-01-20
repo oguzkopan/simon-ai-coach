@@ -7,6 +7,8 @@
 
 import SwiftUI
 import FirebaseCore
+import FirebaseAuth
+import GoogleSignIn
 import RevenueCat
 
 @main
@@ -18,13 +20,8 @@ struct SimonApp: App {
         FirebaseApp.configure()
         
         // RevenueCat initialization
-        #if DEBUG
-        Purchases.logLevel = .debug
-        Purchases.configure(withAPIKey: "appl_YOUR_DEBUG_KEY")
-        #else
         Purchases.logLevel = .info
-        Purchases.configure(withAPIKey: "appl_YOUR_PRODUCTION_KEY")
-        #endif
+        Purchases.configure(withAPIKey: "appl_jUOcBOAodBWrctklDLzWLLQJeDv")
     }
     
     var body: some Scene {
@@ -32,6 +29,10 @@ struct SimonApp: App {
             RootView()
                 .environmentObject(themeStore)
                 .preferredColorScheme(themeStore.colorSchemeOverride())
+                .onOpenURL { url in
+                    // Handle Google Sign-In URL callback
+                    GIDSignIn.sharedInstance.handle(url)
+                }
         }
     }
 }

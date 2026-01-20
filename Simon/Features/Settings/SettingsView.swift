@@ -195,9 +195,10 @@ struct CustomerCenterView: View {
 
 #Preview {
     SettingsView(vm: SettingsViewModel(
-        apiClient: SimonAPIClient(baseURL: URL(string: "http://localhost:8080")!),
-        purchases: PurchasesService(),
-        authSession: AuthSession()
+        apiClient: SimonAPIClient(
+            baseURL: URL(string: "https://simon-api-pl6ewfkpvq-uc.a.run.app")!
+        ),
+        purchases: PurchasesService()
     ))
     .environmentObject(ThemeStore())
 }

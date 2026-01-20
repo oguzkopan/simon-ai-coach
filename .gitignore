@@ -90,7 +90,7 @@ iOSInjectionProject/
 
 # Sensitive Files - API Keys & Configuration
 *.plist
-!Info.plist
+Info.plist
 GoogleService-Info.plist
 GoogleService-Info-*.plist
 

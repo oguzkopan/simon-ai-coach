@@ -14,17 +14,12 @@ final class SignInViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var isSignedIn = false
     
-    private let authSession: AuthSession
-    private let appleSignInService = AppleSignInService()
-    private let googleSignInService = GoogleSignInService()
+    private let authManager = AuthenticationManager.shared
     private var cancellables = Set<AnyCancellable>()
     
-    init(authSession: AuthSession) {
-        self.authSession = authSession
-        
-        // Observe auth state
-        authSession.authStatePublisher
-            .map { $0.isSignedIn }
+    init() {
+        // Observe auth state from AuthenticationManager
+        authManager.$isAuthenticated
             .assign(to: &$isSignedIn)
     }
     
@@ -36,12 +31,7 @@ final class SignInViewModel: ObservableObject {
             errorMessage = nil
             
             do {
-                let result = try await appleSignInService.signIn()
-                _ = try await authSession.signInWithApple(
-                    idToken: result.idToken,
-                    nonce: result.nonce
-                )
-                
+                try await authManager.signInWithApple()
                 // Success - auth state will update automatically
                 isLoading = false
             } catch {
@@ -54,17 +44,18 @@ final class SignInViewModel: ObservableObject {
     // MARK: - Sign In with Google
     
     func signInWithGoogle() {
+        print("📱 SignInViewModel: Starting Google Sign-In")
         Task {
             isLoading = true
             errorMessage = nil
             
             do {
-                let credential = try await googleSignInService.signIn()
-                _ = try await authSession.signInWithGoogle(credential: credential)
-                
-                // Success - auth state will update automatically
+                print("📱 SignInViewModel: Calling authManager.signInWithGoogle()")
+                try await authManager.signInWithGoogle()
+                print("📱 SignInViewModel: Google Sign-In completed successfully")
                 isLoading = false
             } catch {
+                print("📱 SignInViewModel: Google Sign-In failed with error: \(error)")
                 isLoading = false
                 handleError(error)
             }
@@ -74,7 +65,7 @@ final class SignInViewModel: ObservableObject {
     // MARK: - Error Handling
     
     private func handleError(_ error: Error) {
-        if let authError = error as? AuthError {
+        if let authError = error as? AuthenticationError {
             switch authError {
             case .cancelled:
                 // User cancelled - don't show error
@@ -88,9 +79,9 @@ final class SignInViewModel: ObservableObject {
             if nsError.domain == "com.apple.AuthenticationServices.AuthorizationError" && nsError.code == 1001 {
                 // User cancelled Apple Sign In
                 errorMessage = nil
-            } else if nsError.domain == "com.google.GIDSignIn" && nsError.code == -5 {
-                // User cancelled Google Sign In
-                errorMessage = nil
+            } else if nsError.domain == "FIRAuthErrorDomain" {
+                // Firebase auth error
+                errorMessage = "Sign in failed. Please try again."
             } else {
                 errorMessage = "Sign in failed. Please try again."
             }

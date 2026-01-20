@@ -8,23 +8,21 @@
 import SwiftUI
 
 struct RootView: View {
-    @StateObject private var authSession = AuthSession()
+    @StateObject private var authManager = AuthenticationManager.shared
     @EnvironmentObject private var theme: ThemeStore
     
     @State private var showSignIn = false
     
     var body: some View {
         Group {
-            if authSession.authState.isSignedIn {
+            if authManager.isAuthenticated {
                 // Main app (will be implemented in Day 5-7)
                 MainTabView()
-                    .environmentObject(authSession)
             } else {
                 // Browse without sign in (allow browsing)
                 MainTabView()
-                    .environmentObject(authSession)
                     .sheet(isPresented: $showSignIn) {
-                        SignInView(authSession: authSession)
+                        SignInView()
                     }
             }
         }
@@ -39,7 +37,7 @@ struct RootView: View {
 
 struct MainTabView: View {
     @EnvironmentObject private var theme: ThemeStore
-    @EnvironmentObject private var authSession: AuthSession
+    @StateObject private var authManager = AuthenticationManager.shared
     
     @State private var selectedTab = 0
     @State private var showSignIn = false
@@ -47,7 +45,9 @@ struct MainTabView: View {
     
     // Create API client
     private var apiClient: SimonAPIClient {
-        SimonAPIClient(baseURL: URL(string: "http://localhost:8080")!)
+        SimonAPIClient(
+            baseURL: URL(string: "https://simon-api-pl6ewfkpvq-uc.a.run.app")!
+        )
     }
     
     var body: some View {
@@ -86,7 +86,7 @@ struct MainTabView: View {
         }
         .tint(theme.accentPrimary)
         .sheet(isPresented: $showSignIn) {
-            SignInView(authSession: authSession)
+            SignInView()
         }
     }
 }
@@ -95,7 +95,7 @@ struct MainTabView: View {
 
 struct BrowseView: View {
     @EnvironmentObject private var theme: ThemeStore
-    @EnvironmentObject private var authSession: AuthSession
+    @StateObject private var authManager = AuthenticationManager.shared
     
     @State private var showSignIn = false
     
@@ -114,15 +114,15 @@ struct BrowseView: View {
                 .padding(.horizontal, ThemeTokens.spacing16)
                 
                 // Auth status indicator
-                if authSession.authState.isSignedIn {
+                if authManager.isAuthenticated {
                     HStack {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(.green)
-                        Text("Signed in as \(authSession.authState.displayName ?? authSession.authState.email ?? "User")")
+                        Text("Signed in as \(authManager.currentUser?.displayName ?? authManager.currentUser?.email ?? "User")")
                             .font(theme.captionFont)
                         Spacer()
                         Button("Sign Out") {
-                            try? authSession.signOut()
+                            try? authManager.signOut()
                         }
                         .font(theme.captionFont)
                         .foregroundColor(theme.accentPrimary)
@@ -156,7 +156,7 @@ struct BrowseView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showSignIn) {
-            SignInView(authSession: authSession)
+            SignInView()
         }
     }
 }

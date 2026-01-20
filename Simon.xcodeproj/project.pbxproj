@@ -19,15 +19,30 @@
 		6051ACCB2F1EC64100894A9B /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = 6051ACCA2F1EC64100894A9B /* FirebaseStorage */; };
 		6051ACCE2F1EC68E00894A9B /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = 6051ACCD2F1EC68E00894A9B /* RevenueCat */; };
 		6051ACD02F1EC68E00894A9B /* RevenueCatUI in Frameworks */ = {isa = PBXBuildFile; productRef = 6051ACCF2F1EC68E00894A9B /* RevenueCatUI */; };
+		605E243B2F1F98F0002C624C /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 605E243A2F1F98F0002C624C /* GoogleSignIn */; };
+		605E243D2F1F98F0002C624C /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 605E243C2F1F98F0002C624C /* GoogleSignInSwift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		6051ACA52F1EBF6400894A9B /* Simon.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Simon.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		60A937382F1F8E8E0036113C /* Exceptions for "Simon" folder in "Simon" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 6051ACA42F1EBF6400894A9B /* Simon */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		6051ACA72F1EBF6400894A9B /* Simon */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				60A937382F1F8E8E0036113C /* Exceptions for "Simon" folder in "Simon" target */,
+			);
 			path = Simon;
 			sourceTree = "<group>";
 		};
@@ -41,11 +56,13 @@
 				6051ACBF2F1EC64100894A9B /* FirebaseAppCheck in Frameworks */,
 				6051ACC12F1EC64100894A9B /* FirebaseAuth in Frameworks */,
 				6051ACBB2F1EC64100894A9B /* FirebaseAILogic in Frameworks */,
+				605E243B2F1F98F0002C624C /* GoogleSignIn in Frameworks */,
 				6051ACCB2F1EC64100894A9B /* FirebaseStorage in Frameworks */,
 				6051ACCE2F1EC68E00894A9B /* RevenueCat in Frameworks */,
 				6051ACC52F1EC64100894A9B /* FirebaseCrashlytics in Frameworks */,
 				6051ACB92F1EC64100894A9B /* FirebaseAI in Frameworks */,
 				6051ACC92F1EC64100894A9B /* FirebaseFirestore in Frameworks */,
+				605E243D2F1F98F0002C624C /* GoogleSignInSwift in Frameworks */,
 				6051ACD02F1EC68E00894A9B /* RevenueCatUI in Frameworks */,
 				6051ACC32F1EC64100894A9B /* FirebaseCore in Frameworks */,
 				6051ACC72F1EC64100894A9B /* FirebaseDatabase in Frameworks */,
@@ -104,6 +121,8 @@
 				6051ACCA2F1EC64100894A9B /* FirebaseStorage */,
 				6051ACCD2F1EC68E00894A9B /* RevenueCat */,
 				6051ACCF2F1EC68E00894A9B /* RevenueCatUI */,
+				605E243A2F1F98F0002C624C /* GoogleSignIn */,
+				605E243C2F1F98F0002C624C /* GoogleSignInSwift */,
 			);
 			productName = Simon;
 			productReference = 6051ACA52F1EBF6400894A9B /* Simon.app */;
@@ -136,6 +155,7 @@
 			packageReferences = (
 				6051ACB72F1EC64100894A9B /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 				6051ACCC2F1EC68E00894A9B /* XCRemoteSwiftPackageReference "purchases-ios" */,
+				605E24392F1F98F0002C624C /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 6051ACA62F1EBF6400894A9B /* Products */;
@@ -227,6 +247,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -284,6 +305,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 			};
@@ -294,13 +316,15 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Simon/Simon.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = LRMMCR9YYY;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Simon/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Simon;
-				INFOPLIST_KEY_CFBundleURLTypes = "{ CFBundleURLSchemes = (\"app-1-84366855987-ios-5af4aea34b61da451b3846\", \"com.googleusercontent.apps.84366855987-uubbjca006vl48e5ainkiou88n4os2n6\"); }";
+				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleTypeRole = Editor;\n    CFBundleURLSchemes =     (\n        \"app-1-84366855987-ios-5af4aea34b61da451b3846\"\n    );\n} {\n    CFBundleTypeRole = Editor;\n    CFBundleURLSchemes =     (\n        \"com.googleusercontent.apps.84366855987-uubbjca006vl48e5ainkiou88n4os2n6\"\n    );\n}";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Take photos to share with your coach.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Attach images to coaching sessions for better context.";
@@ -332,13 +356,15 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Simon/Simon.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = LRMMCR9YYY;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Simon/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Simon;
-				INFOPLIST_KEY_CFBundleURLTypes = "{ CFBundleURLSchemes = (\"app-1-84366855987-ios-5af4aea34b61da451b3846\", \"com.googleusercontent.apps.84366855987-uubbjca006vl48e5ainkiou88n4os2n6\"); }";
+				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleTypeRole = Editor;\n    CFBundleURLSchemes =     (\n        \"app-1-84366855987-ios-5af4aea34b61da451b3846\"\n    );\n} {\n    CFBundleTypeRole = Editor;\n    CFBundleURLSchemes =     (\n        \"com.googleusercontent.apps.84366855987-uubbjca006vl48e5ainkiou88n4os2n6\"\n    );\n}";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Take photos to share with your coach.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Attach images to coaching sessions for better context.";
@@ -405,6 +431,14 @@
 				minimumVersion = 5.55.2;
 			};
 		};
+		605E24392F1F98F0002C624C /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 9.1.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -467,6 +501,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 6051ACCC2F1EC68E00894A9B /* XCRemoteSwiftPackageReference "purchases-ios" */;
 			productName = RevenueCatUI;
+		};
+		605E243A2F1F98F0002C624C /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 605E24392F1F98F0002C624C /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
+		};
+		605E243C2F1F98F0002C624C /* GoogleSignInSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 605E24392F1F98F0002C624C /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignInSwift;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

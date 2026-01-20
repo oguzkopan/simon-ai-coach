@@ -44,6 +44,7 @@ struct SessionDetail: Codable {
 final class SimonAPIClient: SimonAPI {
     private let baseURL: URL
     private let session: URLSession
+    private let authManager = AuthenticationManager.shared
     
     init(baseURL: URL) {
         self.baseURL = baseURL
@@ -52,6 +53,13 @@ final class SimonAPIClient: SimonAPI {
         config.timeoutIntervalForRequest = 30
         config.timeoutIntervalForResource = 300
         self.session = URLSession(configuration: config)
+    }
+    
+    // MARK: - Auth Helper
+    
+    private func addAuthHeader(to request: inout URLRequest) async throws {
+        let token = try await authManager.idToken()
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     }
     
     // MARK: - Coaches
@@ -70,9 +78,7 @@ final class SimonAPIClient: SimonAPI {
         
         var request = URLRequest(url: components.url!)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        // TODO: Add auth token (Week 1 Day 3-4)
-        // request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        try await addAuthHeader(to: &request)
         
         let (data, response) = try await session.data(for: request)
         
@@ -92,6 +98,7 @@ final class SimonAPIClient: SimonAPI {
     func getCoach(id: String) async throws -> Coach {
         var request = URLRequest(url: baseURL.appendingPathComponent("/v1/coaches/\(id)"))
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try await addAuthHeader(to: &request)
         
         let (data, response) = try await session.data(for: request)
         
@@ -112,9 +119,7 @@ final class SimonAPIClient: SimonAPI {
         var request = URLRequest(url: baseURL.appendingPathComponent("/v1/coaches"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        // TODO: Add auth token
-        // request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        try await addAuthHeader(to: &request)
         
         let body: [String: Any] = [
             "title": draft.name,
@@ -142,9 +147,7 @@ final class SimonAPIClient: SimonAPI {
         var request = URLRequest(url: baseURL.appendingPathComponent("/v1/coaches/\(coachId)/fork"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        // TODO: Add auth token
-        // request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        try await addAuthHeader(to: &request)
         
         let (data, response) = try await session.data(for: request)
         
@@ -165,9 +168,7 @@ final class SimonAPIClient: SimonAPI {
         var request = URLRequest(url: baseURL.appendingPathComponent("/v1/coaches/\(coachId)/publish"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        // TODO: Add auth token
-        // request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        try await addAuthHeader(to: &request)
         
         let (data, response) = try await session.data(for: request)
         
@@ -194,6 +195,7 @@ final class SimonAPIClient: SimonAPI {
         var request = URLRequest(url: baseURL.appendingPathComponent("/v1/sessions"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try await addAuthHeader(to: &request)
         
         let body: [String: String?] = [
             "coach_id": coachID
@@ -219,6 +221,7 @@ final class SimonAPIClient: SimonAPI {
     func getSession(id: String) async throws -> SessionDetail {
         var request = URLRequest(url: baseURL.appendingPathComponent("/v1/sessions/\(id)"))
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try await addAuthHeader(to: &request)
         
         let (data, response) = try await session.data(for: request)
         
@@ -244,6 +247,7 @@ final class SimonAPIClient: SimonAPI {
         
         var request = URLRequest(url: components.url!)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try await addAuthHeader(to: &request)
         
         let (data, response) = try await session.data(for: request)
         
@@ -269,6 +273,7 @@ final class SimonAPIClient: SimonAPI {
                     var request = URLRequest(url: baseURL.appendingPathComponent("/v1/sessions/\(sessionID)/stream"))
                     request.httpMethod = "GET"
                     request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+                    try await addAuthHeader(to: &request)
                     
                     let (bytes, response) = try await session.bytes(for: request)
                     
@@ -310,6 +315,7 @@ final class SimonAPIClient: SimonAPI {
     func listSystems() async throws -> [System] {
         var request = URLRequest(url: baseURL.appendingPathComponent("/v1/systems"))
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try await addAuthHeader(to: &request)
         
         let (data, response) = try await session.data(for: request)
         
@@ -330,6 +336,7 @@ final class SimonAPIClient: SimonAPI {
         var request = URLRequest(url: baseURL.appendingPathComponent("/v1/systems"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try await addAuthHeader(to: &request)
         
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -353,6 +360,7 @@ final class SimonAPIClient: SimonAPI {
     func getSystem(id: String) async throws -> System {
         var request = URLRequest(url: baseURL.appendingPathComponent("/v1/systems/\(id)"))
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try await addAuthHeader(to: &request)
         
         let (data, response) = try await session.data(for: request)
         
@@ -373,6 +381,7 @@ final class SimonAPIClient: SimonAPI {
         var request = URLRequest(url: baseURL.appendingPathComponent("/v1/systems/\(id)"))
         request.httpMethod = "DELETE"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try await addAuthHeader(to: &request)
         
         let (_, response) = try await session.data(for: request)
         
@@ -391,9 +400,7 @@ final class SimonAPIClient: SimonAPI {
         var request = URLRequest(url: baseURL.appendingPathComponent("/v1/moments/start"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        // TODO: Add auth token
-        // request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        try await addAuthHeader(to: &request)
         
         let body = ["prompt": prompt]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -422,9 +429,7 @@ final class SimonAPIClient: SimonAPI {
     func getContext() async throws -> UserContextData {
         var request = URLRequest(url: baseURL.appendingPathComponent("/v1/context"))
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        // TODO: Add auth token
-        // request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        try await addAuthHeader(to: &request)
         
         let (data, response) = try await session.data(for: request)
         
@@ -445,9 +450,7 @@ final class SimonAPIClient: SimonAPI {
         var request = URLRequest(url: baseURL.appendingPathComponent("/v1/context"))
         request.httpMethod = "PUT"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        // TODO: Add auth token
-        // request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        try await addAuthHeader(to: &request)
         
         let encoder = JSONEncoder()
         encoder.keyEncodingStrategy = .convertToSnakeCase
@@ -468,9 +471,7 @@ final class SimonAPIClient: SimonAPI {
         var request = URLRequest(url: baseURL.appendingPathComponent("/v1/context/preference"))
         request.httpMethod = "PUT"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        // TODO: Add auth token
-        // request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        try await addAuthHeader(to: &request)
         
         let body = ["include_context": includeContext]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -492,9 +493,7 @@ final class SimonAPIClient: SimonAPI {
         var request = URLRequest(url: baseURL.appendingPathComponent("/v1/me"))
         request.httpMethod = "DELETE"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        // TODO: Add auth token
-        // request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        try await addAuthHeader(to: &request)
         
         let (_, response) = try await session.data(for: request)
         

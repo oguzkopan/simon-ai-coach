@@ -20,8 +20,15 @@ func New(ctx context.Context, project, location, model string) (*Client, error) 
 		return nil, fmt.Errorf("project ID is required")
 	}
 
-	// Initialize the actual Gemini client
-	client, err := genai.NewClient(ctx, nil)
+	// Configure for Vertex AI (uses Application Default Credentials)
+	config := &genai.ClientConfig{
+		Backend:  genai.BackendVertexAI,
+		Project:  project,
+		Location: location,
+	}
+
+	// Initialize the Gemini client with Vertex AI backend
+	client, err := genai.NewClient(ctx, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create genai client: %w", err)
 	}

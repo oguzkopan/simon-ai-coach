@@ -11,7 +11,7 @@ import Combine
 enum AppError: LocalizedError {
     case network(NetworkError)
     case api(APIError)
-    case auth(AuthError)
+    case auth(AuthenticationError)
     case unknown(Error)
     
     var errorDescription: String? {
@@ -43,7 +43,7 @@ enum AppError: LocalizedError {
             return "Server error. Please try again later."
         case .auth(.notSignedIn):
             return "Please sign in to continue."
-        case .auth(.tokenRefreshFailed):
+        case .auth(.invalidToken):
             return "Session expired. Please sign in again."
         default:
             return "Something went wrong. Please try again."
@@ -61,7 +61,7 @@ enum AppError: LocalizedError {
         switch self {
         case .api(.httpError(401)):
             return true
-        case .auth(.notSignedIn), .auth(.tokenRefreshFailed):
+        case .auth(.notSignedIn), .auth(.invalidToken):
             return true
         default:
             return false
@@ -122,7 +122,7 @@ final class ErrorHandler: ObservableObject {
     private func mapError(_ error: Error) -> AppError {
         if let apiError = error as? APIError {
             return .api(apiError)
-        } else if let authError = error as? AuthError {
+        } else if let authError = error as? AuthenticationError {
             return .auth(authError)
         } else if let urlError = error as? URLError {
             switch urlError.code {
