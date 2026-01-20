@@ -34,6 +34,10 @@ func New(cfg config.Config, fs *firestore.Client, gm *gemini.Client) (*gin.Engin
 	// Public routes
 	r.GET("/health", handlers.Health)
 	r.GET("/healthz", handlers.Health) // Keep both for compatibility
+	
+	// Public coach browsing (no auth required)
+	r.GET("/v1/coaches", handlers.ListCoaches(fs))
+	r.GET("/v1/coaches/:id", handlers.GetCoach(fs))
 
 	// Initialize auth middleware
 	authMW, err := middleware.NewFirebaseAuth()
@@ -52,6 +56,7 @@ func New(cfg config.Config, fs *firestore.Client, gm *gemini.Client) (*gin.Engin
 	{
 		// User endpoints
 		v1.GET("/me", handlers.GetMe(fs))
+		v1.POST("/me/initialize", handlers.InitializeUser(fs))
 		v1.PUT("/me", handlers.UpdateMe(fs))
 		v1.DELETE("/me", handlers.DeleteMe(fs))
 
@@ -61,9 +66,7 @@ func New(cfg config.Config, fs *firestore.Client, gm *gemini.Client) (*gin.Engin
 		v1.PUT("/context/preference", handlers.UpdateContextPreference(fs))
 
 		// Coach endpoints (to be implemented in Week 1 Day 5-7)
-		v1.GET("/coaches", handlers.ListCoaches(fs))
 		v1.POST("/coaches", handlers.CreateCoach(fs))
-		v1.GET("/coaches/:id", handlers.GetCoach(fs))
 		v1.POST("/coaches/:id/fork", handlers.ForkCoach(fs))
 		v1.POST("/coaches/:id/publish", handlers.PublishCoach(fs, cfg))
 

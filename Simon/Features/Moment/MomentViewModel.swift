@@ -27,12 +27,22 @@ final class MomentViewModel: ObservableObject {
     @Published var createdSessionId: String?
     @Published var createdCoachName: String?
     @Published var remainingMoments: Int = 3
+    @Published var isRecording: Bool = false
+    @Published var routines: [System] = []
+    @Published var selectedRoutine: System?
     
     private let apiClient: SimonAPI
     private let purchases: PurchasesService
     
     var isPro: Bool {
         purchases.isPro
+    }
+    
+    var pendingRoutinesCount: Int {
+        routines.filter { routine in
+            let daysSinceCreation = Calendar.current.dateComponents([.day], from: routine.createdAt, to: Date()).day ?? 0
+            return daysSinceCreation > 0
+        }.count
     }
     
     let templates: [MomentTemplate] = [
@@ -97,6 +107,18 @@ final class MomentViewModel: ObservableObject {
         let key = "moments_count_\(today.timeIntervalSince1970)"
         let count = UserDefaults.standard.integer(forKey: key)
         remainingMoments = max(0, 3 - count)
+    }
+    
+    func loadRoutines() async {
+        do {
+            routines = try await apiClient.listSystems()
+        } catch {
+            print("Failed to load routines: \(error)")
+        }
+    }
+    
+    func openRoutine(_ routine: System) {
+        selectedRoutine = routine
     }
     
     func startTemplate(_ template: MomentTemplate) {
@@ -171,5 +193,35 @@ final class MomentViewModel: ObservableObject {
             coachName: coachName,
             apiClient: apiClient
         )
+    }
+    
+    // MARK: - Voice Input
+    
+    func toggleVoiceInput() {
+        isRecording.toggle()
+        
+        if isRecording {
+            startVoiceRecording()
+        } else {
+            stopVoiceRecording()
+        }
+    }
+    
+    private func startVoiceRecording() {
+        // TODO: Implement voice recording
+        // For now, just toggle the state
+        print("Start voice recording")
+    }
+    
+    private func stopVoiceRecording() {
+        // TODO: Implement voice recording stop and transcription
+        print("Stop voice recording")
+    }
+    
+    // MARK: - Attachment
+    
+    func showAttachmentPicker() {
+        // TODO: Implement attachment picker
+        print("Show attachment picker")
     }
 }

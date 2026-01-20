@@ -13,7 +13,7 @@ func main() {
 	ctx := context.Background()
 
 	// Initialize Firestore
-	projectID := "simon-prod" // Change to your project ID
+	projectID := "simon-7a833"
 	client, err := firestore.NewClient(ctx, projectID)
 	if err != nil {
 		log.Fatalf("Failed to create Firestore client: %v", err)

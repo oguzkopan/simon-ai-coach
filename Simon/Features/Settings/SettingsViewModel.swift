@@ -7,6 +7,7 @@
 
 import Foundation
 import Combine
+import FirebaseAuth
 
 @MainActor
 final class SettingsViewModel: ObservableObject {
@@ -14,6 +15,7 @@ final class SettingsViewModel: ObservableObject {
     @Published var showPaywall: Bool = false
     @Published var showCustomerCenter: Bool = false
     @Published var showDeleteConfirmation: Bool = false
+    @Published var showLogoutConfirmation: Bool = false
     @Published var isDeleting: Bool = false
     @Published var errorMessage: String?
     
@@ -54,6 +56,42 @@ final class SettingsViewModel: ObservableObject {
                 print("Failed to save context preference: \(error)")
             }
         }
+    }
+    
+    func signOut() {
+        do {
+            try authManager.signOut()
+            print("✅ Signed out successfully")
+        } catch {
+            errorMessage = "Failed to sign out: \(error.localizedDescription)"
+            print("❌ Sign out error: \(error)")
+        }
+    }
+    
+    func deleteAccount() async {
+        isDeleting = true
+        errorMessage = nil
+        
+        do {
+            // Delete all user data from backend
+            try await apiClient.deleteAllUserData()
+            
+            // Delete Firebase user account
+            if let user = authManager.firebaseUser {
+                try await user.delete()
+            }
+            
+            // Sign out
+            try authManager.signOut()
+            
+            print("✅ Account deleted successfully")
+            
+        } catch {
+            errorMessage = "Failed to delete account: \(error.localizedDescription)"
+            print("❌ Delete account error: \(error)")
+        }
+        
+        isDeleting = false
     }
     
     func deleteAllData() async {

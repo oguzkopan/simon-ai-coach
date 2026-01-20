@@ -100,25 +100,8 @@ func (c *Client) GetSession(ctx context.Context, sessionID string) (*models.Sess
 func (c *Client) GetUser(ctx context.Context, uid string) (*models.User, error) {
 	doc, err := c.DB.Collection("users").Doc(uid).Get(ctx)
 	if err != nil {
-		// If user doesn't exist, create default user
-		if err.Error() == "not found" {
-			user := &models.User{
-				UID:         uid,
-				ContextVault: models.UserContext{},
-				Preferences: models.Preferences{
-					IncludeContext: true,
-				},
-				CreatedAt: models.Now(),
-				UpdatedAt: models.Now(),
-			}
-			
-			if _, err := c.DB.Collection("users").Doc(uid).Set(ctx, user); err != nil {
-				return nil, err
-			}
-			
-			return user, nil
-		}
-		return nil, err
+		// If user doesn't exist, return error (don't auto-create here)
+		return nil, WrapError("get user", err)
 	}
 
 	var user models.User
@@ -127,6 +110,47 @@ func (c *Client) GetUser(ctx context.Context, uid string) (*models.User, error) 
 	}
 
 	return &user, nil
+}
+
+// CreateUser creates a new user with initial credits
+func (c *Client) CreateUser(ctx context.Context, uid, email, displayName, photoURL string) (*models.User, error) {
+	// Check if user already exists
+	existingUser, err := c.GetUser(ctx, uid)
+	if err == nil {
+		// User already exists, return it
+		return existingUser, nil
+	}
+
+	// Create new user with 3 free credits
+	user := &models.User{
+		UID:         uid,
+		Email:       email,
+		DisplayName: displayName,
+		PhotoURL:    photoURL,
+		Credits:     3, // Free credits on signup
+		ContextVault: models.UserContext{},
+		Preferences: models.Preferences{
+			IncludeContext: true,
+		},
+		CreatedAt: models.Now(),
+		UpdatedAt: models.Now(),
+	}
+
+	if _, err := c.DB.Collection("users").Doc(uid).Set(ctx, user); err != nil {
+		return nil, WrapError("create user", err)
+	}
+
+	return user, nil
+}
+
+// GetOrCreateUser retrieves a user or creates one if it doesn't exist
+func (c *Client) GetOrCreateUser(ctx context.Context, uid, email, displayName, photoURL string) (*models.User, error) {
+	user, err := c.GetUser(ctx, uid)
+	if err != nil {
+		// User doesn't exist, create it
+		return c.CreateUser(ctx, uid, email, displayName, photoURL)
+	}
+	return user, nil
 }
 
 // UpdateUser updates a user's profile

@@ -26,6 +26,35 @@ func GetMe(fs *firestore.Client) gin.HandlerFunc {
 	}
 }
 
+// InitializeUser handles POST /v1/me/initialize
+// Creates a new user document with initial credits after sign-in
+func InitializeUser(fs *firestore.Client) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		uid := middleware.GetUID(c)
+		ctx := c.Request.Context()
+
+		var req struct {
+			Email       string `json:"email"`
+			DisplayName string `json:"display_name"`
+			PhotoURL    string `json:"photo_url"`
+		}
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+			return
+		}
+
+		// Create or get existing user
+		user, err := fs.GetOrCreateUser(ctx, uid, req.Email, req.DisplayName, req.PhotoURL)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to initialize user"})
+			return
+		}
+
+		c.JSON(http.StatusOK, user)
+	}
+}
+
 // UpdateMe handles PUT /v1/me
 // Updates the current user's profile
 func UpdateMe(fs *firestore.Client) gin.HandlerFunc {

@@ -58,8 +58,13 @@ final class SimonAPIClient: SimonAPI {
     // MARK: - Auth Helper
     
     private func addAuthHeader(to request: inout URLRequest) async throws {
-        let token = try await authManager.idToken()
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        // Try to get token, but don't fail if user is not signed in
+        do {
+            let token = try await authManager.idToken()
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        } catch {
+            // User not signed in - continue without auth header for public endpoints
+        }
     }
     
     // MARK: - Coaches
@@ -78,7 +83,9 @@ final class SimonAPIClient: SimonAPI {
         
         var request = URLRequest(url: components.url!)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        try await addAuthHeader(to: &request)
+        
+        // Add auth header if available (optional for public browsing)
+        try? await addAuthHeader(to: &request)
         
         let (data, response) = try await session.data(for: request)
         
@@ -98,7 +105,9 @@ final class SimonAPIClient: SimonAPI {
     func getCoach(id: String) async throws -> Coach {
         var request = URLRequest(url: baseURL.appendingPathComponent("/v1/coaches/\(id)"))
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        try await addAuthHeader(to: &request)
+        
+        // Add auth header if available (optional for public browsing)
+        try? await addAuthHeader(to: &request)
         
         let (data, response) = try await session.data(for: request)
         
@@ -271,9 +280,17 @@ final class SimonAPIClient: SimonAPI {
             Task {
                 do {
                     var request = URLRequest(url: baseURL.appendingPathComponent("/v1/sessions/\(sessionID)/stream"))
-                    request.httpMethod = "GET"
+                    request.httpMethod = "POST"
                     request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                     try await addAuthHeader(to: &request)
+                    
+                    // Add the message body
+                    let body: [String: Any] = [
+                        "content_text": userText,
+                        "attachments": []
+                    ]
+                    request.httpBody = try JSONSerialization.data(withJSONObject: body)
                     
                     let (bytes, response) = try await session.bytes(for: request)
                     

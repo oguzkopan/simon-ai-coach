@@ -4,6 +4,7 @@ struct ChatView: View {
     @StateObject private var viewModel: ChatViewModel
     @EnvironmentObject private var theme: ThemeStore
     @State private var scrollProxy: ScrollViewProxy?
+    @FocusState private var isInputFocused: Bool
     
     init(viewModel: ChatViewModel) {
         _viewModel = StateObject(wrappedValue: viewModel)
@@ -15,14 +16,31 @@ struct ChatView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 12) {
-                        ForEach(viewModel.messages) { message in
-                            MessageBubble(message: message, onPin: { msg in
-                                viewModel.pinAsSystem(msg)
-                            })
-                            .id(message.id)
+                        if viewModel.messages.isEmpty {
+                            VStack(spacing: 16) {
+                                Image(systemName: "bubble.left.and.bubble.right")
+                                    .font(.system(size: 48))
+                                    .foregroundColor(.secondary.opacity(0.5))
+                                Text("Start a conversation")
+                                    .font(theme.font(17))
+                                    .foregroundColor(.secondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 100)
+                        } else {
+                            ForEach(viewModel.messages) { message in
+                                MessageBubble(message: message, onPin: { msg in
+                                    viewModel.pinAsSystem(msg)
+                                })
+                                .id(message.id)
+                            }
                         }
                     }
                     .padding(16)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    isInputFocused = false
                 }
                 .onAppear {
                     scrollProxy = proxy
@@ -59,6 +77,7 @@ struct ChatView: View {
             ComposerBar(
                 text: $viewModel.composerText,
                 isStreaming: viewModel.isStreaming,
+                isFocused: $isInputFocused,
                 onSend: { viewModel.send() },
                 onStop: { viewModel.stopStreaming() },
                 onAttach: { viewModel.showAttachmentPicker = true }
@@ -134,12 +153,12 @@ struct MessageBubble: View {
 struct ComposerBar: View {
     @Binding var text: String
     let isStreaming: Bool
+    var isFocused: FocusState<Bool>.Binding
     let onSend: () -> Void
     let onStop: () -> Void
     let onAttach: () -> Void
     
     @EnvironmentObject private var theme: ThemeStore
-    @FocusState private var isFocused: Bool
     
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
@@ -159,7 +178,7 @@ struct ComposerBar: View {
                 .background(Color(.systemGray6))
                 .cornerRadius(10)
                 .lineLimit(1...4)
-                .focused($isFocused)
+                .focused(isFocused)
                 .disabled(isStreaming)
             
             // Send/Stop button

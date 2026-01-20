@@ -99,6 +99,7 @@ type User struct {
 	DisplayName  string       `firestore:"display_name,omitempty" json:"display_name,omitempty"`
 	PhotoURL     string       `firestore:"photo_url,omitempty" json:"photo_url,omitempty"`
 	Email        string       `firestore:"email,omitempty" json:"email,omitempty"`
+	Credits      int          `firestore:"credits" json:"credits"`
 	ContextVault UserContext  `firestore:"context_vault" json:"context_vault"`
 	Preferences  Preferences  `firestore:"preferences" json:"preferences"`
 	CreatedAt    time.Time    `firestore:"created_at" json:"created_at"`

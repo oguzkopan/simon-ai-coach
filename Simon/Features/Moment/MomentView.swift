@@ -1,15 +1,9 @@
-//
-//  MomentView.swift
-//  Simon
-//
-//  Created on Day 12-14: Moment + Router Agent
-//
-
 import SwiftUI
 
 struct MomentView: View {
     @StateObject private var vm: MomentViewModel
     @EnvironmentObject private var theme: ThemeStore
+    @FocusState private var isTextFieldFocused: Bool
     
     init(vm: MomentViewModel) {
         _vm = StateObject(wrappedValue: vm)
@@ -21,54 +15,130 @@ struct MomentView: View {
                 VStack(alignment: .leading, spacing: 24) {
                     // Header
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Need guidance right now?")
+                        Text("What's on your mind?")
                             .font(theme.font(28, weight: .bold))
                         
-                        Text("Pick a template or describe what's on your mind.")
+                        Text("Vent, brainstorm, or ask for guidance.")
                             .font(theme.font(15))
                             .foregroundColor(.secondary)
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 12)
                     
-                    // Freeform Input
+                    // Freeform Input with Voice/Attachment
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Or just tell me what's up")
-                            .font(theme.font(17, weight: .semibold))
-                            .padding(.horizontal, 16)
-                        
                         VStack(spacing: 0) {
-                            TextEditor(text: $vm.freeformInput)
-                                .font(theme.font(15))
-                                .frame(minHeight: 100)
-                                .padding(12)
-                                .scrollContentBackground(.hidden)
-                                .background(Color(.systemGray6))
-                                .cornerRadius(12)
-                            
-                            if !vm.freeformInput.isEmpty {
-                                Button(action: { vm.startFreeform() }) {
-                                    HStack {
-                                        Spacer()
-                                        if vm.isLoading {
-                                            ProgressView()
-                                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                        } else {
-                                            Text("Start")
-                                                .font(theme.font(17, weight: .semibold))
-                                        }
-                                        Spacer()
-                                    }
-                                    .frame(height: 52)
-                                    .background(theme.accentPrimary)
-                                    .foregroundColor(.white)
-                                    .cornerRadius(12)
+                            // Text Input Area
+                            ZStack(alignment: .topLeading) {
+                                if vm.freeformInput.isEmpty {
+                                    Text("What's on your mind? Vent, brainstorm, or ask for guidance.")
+                                        .font(theme.font(15))
+                                        .foregroundColor(.secondary.opacity(0.5))
+                                        .padding(.horizontal, 16)
+                                        .padding(.vertical, 16)
                                 }
-                                .disabled(vm.isLoading)
-                                .padding(.top, 12)
+                                
+                                TextEditor(text: $vm.freeformInput)
+                                    .font(theme.font(15))
+                                    .frame(minHeight: 120)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 12)
+                                    .scrollContentBackground(.hidden)
+                                    .focused($isTextFieldFocused)
                             }
+                            .background(Color(.systemBackground))
+                            
+                            Divider()
+                            
+                            // Bottom Bar with Voice, Attachment, and Process Button
+                            HStack(spacing: 16) {
+                                // Voice Button
+                                Button(action: { vm.toggleVoiceInput() }) {
+                                    Image(systemName: vm.isRecording ? "mic.fill" : "mic")
+                                        .font(.system(size: 20))
+                                        .foregroundColor(vm.isRecording ? .red : .secondary)
+                                        .frame(width: 44, height: 44)
+                                }
+                                
+                                // Attachment Button
+                                Button(action: { vm.showAttachmentPicker() }) {
+                                    Image(systemName: "photo")
+                                        .font(.system(size: 20))
+                                        .foregroundColor(.secondary)
+                                        .frame(width: 44, height: 44)
+                                }
+                                
+                                Spacer()
+                                
+                                // Process Button
+                                if !vm.freeformInput.isEmpty {
+                                    Button(action: { 
+                                        isTextFieldFocused = false
+                                        vm.startFreeform()
+                                    }) {
+                                        HStack(spacing: 8) {
+                                            if vm.isLoading {
+                                                ProgressView()
+                                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                            } else {
+                                                Text("Process")
+                                                    .font(theme.font(15, weight: .semibold))
+                                                
+                                                Image(systemName: "arrow.right")
+                                                    .font(.system(size: 14, weight: .semibold))
+                                            }
+                                        }
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 24)
+                                        .padding(.vertical, 12)
+                                        .background(theme.accentPrimary)
+                                        .cornerRadius(24)
+                                    }
+                                    .disabled(vm.isLoading)
+                                }
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Color(.systemBackground))
                         }
+                        .background(Color(.systemBackground))
+                        .cornerRadius(16)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(Color(.systemGray4), lineWidth: 1)
+                        )
                         .padding(.horizontal, 16)
+                    }
+                    
+                    // Routines Section
+                    if !vm.routines.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Text("ROUTINES")
+                                    .font(theme.font(13, weight: .semibold))
+                                    .foregroundColor(.secondary)
+                                    .tracking(1)
+                                
+                                Spacer()
+                                
+                                if vm.pendingRoutinesCount > 0 {
+                                    Text("\(vm.pendingRoutinesCount) Pending")
+                                        .font(theme.font(13))
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            
+                            VStack(spacing: 12) {
+                                ForEach(vm.routines) { routine in
+                                    RoutineCard(routine: routine) {
+                                        isTextFieldFocused = false
+                                        vm.openRoutine(routine)
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                        }
                     }
                     
                     // Divider
@@ -103,6 +173,7 @@ struct MomentView: View {
                                     template: template,
                                     isLoading: vm.isLoading && vm.selectedTemplate?.id == template.id
                                 ) {
+                                    isTextFieldFocused = false
                                     vm.startTemplate(template)
                                 }
                             }
@@ -145,9 +216,16 @@ struct MomentView: View {
             }
             .navigationTitle("Moment")
             .navigationBarTitleDisplayMode(.inline)
+            .onTapGesture {
+                // Dismiss keyboard when tapping outside
+                isTextFieldFocused = false
+            }
         }
         .sheet(isPresented: $vm.showPaywall) {
             PaywallView()
+        }
+        .sheet(item: $vm.selectedRoutine) { routine in
+            SystemDetailView(system: routine)
         }
         .navigationDestination(isPresented: $vm.navigateToChat) {
             if let sessionId = vm.createdSessionId,
@@ -157,6 +235,70 @@ struct MomentView: View {
         }
         .task {
             await vm.loadRemainingMoments()
+            await vm.loadRoutines()
+        }
+    }
+}
+
+// MARK: - Routine Card
+struct RoutineCard: View {
+    let routine: System
+    let action: () -> Void
+    
+    @EnvironmentObject private var theme: ThemeStore
+    
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(routine.title)
+                        .font(theme.font(17, weight: .semibold))
+                        .foregroundColor(.primary)
+                    
+                    Text(statusText)
+                        .font(theme.font(13))
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+                
+                // Status indicator
+                if needsAction {
+                    Circle()
+                        .fill(Color.orange)
+                        .frame(width: 12, height: 12)
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 14))
+                        .foregroundColor(.secondary)
+                }
+            }
+            .padding(16)
+            .background(Color(.systemBackground))
+            .cornerRadius(12)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color(.systemGray4), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+    
+    private var needsAction: Bool {
+        // Check if routine needs action (e.g., not run today)
+        let daysSinceCreation = Calendar.current.dateComponents([.day], from: routine.createdAt, to: Date()).day ?? 0
+        return daysSinceCreation > 0
+    }
+    
+    private var statusText: String {
+        let daysSinceCreation = Calendar.current.dateComponents([.day], from: routine.createdAt, to: Date()).day ?? 0
+        
+        if daysSinceCreation == 0 {
+            return "Last run: Today"
+        } else if daysSinceCreation == 1 {
+            return "Action Required"
+        } else {
+            return "Last run: \(daysSinceCreation)d ago"
         }
     }
 }

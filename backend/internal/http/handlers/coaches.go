@@ -15,11 +15,16 @@ import (
 	"simon-backend/internal/models"
 )
 
-// ListCoaches returns a list of coaches
+// ListCoaches returns a list of coaches (public endpoint)
 func ListCoaches(fs *fsClient.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
-		uid := middleware.GetUID(c)
+		
+		// UID is optional for public browsing
+		uid := ""
+		if uidVal, exists := c.Get("uid"); exists {
+			uid = uidVal.(string)
+		}
 
 		tag := c.Query("tag")
 		featured := c.Query("featured")
@@ -55,22 +60,32 @@ func ListCoaches(fs *fsClient.Client) gin.HandlerFunc {
 
 			var coach models.Coach
 			if err := doc.DataTo(&coach); err != nil {
-				log.Printf("Error parsing coach: %v", err)
+				log.Printf("Error parsing coach %s: %v", doc.Ref.ID, err)
 				continue
 			}
 			coaches = append(coaches, coach)
 		}
 
-		c.JSON(http.StatusOK, coaches)
+		log.Printf("Returning %d coaches", len(coaches))
+		if len(coaches) == 0 {
+			c.JSON(http.StatusOK, []models.Coach{})
+		} else {
+			c.JSON(http.StatusOK, coaches)
+		}
 	}
 }
 
-// GetCoach returns a single coach by ID
+// GetCoach returns a single coach by ID (public endpoint)
 func GetCoach(fs *fsClient.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
 		coachID := c.Param("id")
-		uid := middleware.GetUID(c)
+		
+		// UID is optional for public browsing
+		uid := ""
+		if uidVal, exists := c.Get("uid"); exists {
+			uid = uidVal.(string)
+		}
 
 		log.Printf("GetCoach: uid=%s, coachID=%s", uid, coachID)
 
