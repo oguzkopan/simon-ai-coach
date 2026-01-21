@@ -48,22 +48,53 @@ func (c *Client) Close() error {
 
 // GenerateContentStream streams content using Gemini
 func (c *Client) GenerateContentStream(ctx context.Context, prompt string) (<-chan string, <-chan error) {
-	tokens := make(chan string, 10)
+	tokens := make(chan string, 100)
 	errors := make(chan error, 1)
 
 	go func() {
 		defer close(tokens)
 		defer close(errors)
 
-		// TODO: Implement actual streaming with genai SDK
-		// For now, return a simple response
-		response := "This is a placeholder streaming response. "
+		// TODO: Implement proper Gemini streaming
+		// For now, generate a helpful coaching response
+		response := "I hear you. Let me help you with that.\n\n" +
+			"Here's what I suggest:\n\n" +
+			"1. Take a moment to clarify what you're trying to achieve\n" +
+			"2. Break it down into a small, actionable next step\n" +
+			"3. Set aside 20 minutes to make progress\n\n" +
+			"What feels like the right first step for you?"
+
+		// Send response in chunks to simulate streaming
+		words := []string{}
+		currentWord := ""
 		for _, char := range response {
+			if char == ' ' || char == '\n' {
+				if currentWord != "" {
+					words = append(words, currentWord)
+					currentWord = ""
+				}
+				if char == '\n' {
+					words = append(words, "\n")
+				} else {
+					words = append(words, " ")
+				}
+			} else {
+				currentWord += string(char)
+			}
+		}
+		if currentWord != "" {
+			words = append(words, currentWord)
+		}
+
+		// Stream words
+		for _, word := range words {
 			select {
 			case <-ctx.Done():
 				errors <- ctx.Err()
 				return
-			case tokens <- string(char):
+			case tokens <- word:
+				// Small delay to simulate streaming
+				// time.Sleep(20 * time.Millisecond)
 			}
 		}
 	}()

@@ -1,13 +1,14 @@
 import Foundation
 
-struct Coach: Identifiable, Codable, Equatable {
+struct Coach: Identifiable, Codable {
     let id: String
     let ownerUID: String
     let visibility: String
     let title: String
     let promise: String
     let tags: [String]
-    let blueprint: [String: AnyCodable]
+    let blueprint: [String: CoachAnyCodable]?  // Deprecated, kept for backward compatibility
+    let coachSpec: CoachSpec?
     let stats: CoachStats
     let createdAt: Date
     let updatedAt: Date
@@ -20,9 +21,42 @@ struct Coach: Identifiable, Codable, Equatable {
         case promise
         case tags
         case blueprint
+        case coachSpec
         case stats
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+    }
+}
+
+// MARK: - Equatable Conformance
+extension Coach: Equatable {
+    static func == (lhs: Coach, rhs: Coach) -> Bool {
+        return lhs.id == rhs.id &&
+               lhs.ownerUID == rhs.ownerUID &&
+               lhs.visibility == rhs.visibility &&
+               lhs.title == rhs.title &&
+               lhs.promise == rhs.promise &&
+               lhs.tags == rhs.tags &&
+               lhs.stats == rhs.stats &&
+               lhs.createdAt == rhs.createdAt &&
+               lhs.updatedAt == rhs.updatedAt &&
+               lhs.coachSpec == rhs.coachSpec &&
+               compareBlueprintOptionals(lhs.blueprint, rhs.blueprint)
+    }
+    
+    private static func compareBlueprintOptionals(_ lhs: [String: CoachAnyCodable]?, _ rhs: [String: CoachAnyCodable]?) -> Bool {
+        switch (lhs, rhs) {
+        case (.none, .none):
+            return true
+        case (.some(let l), .some(let r)):
+            guard l.count == r.count else { return false }
+            for (key, value) in l {
+                guard let rhsValue = r[key], value == rhsValue else { return false }
+            }
+            return true
+        default:
+            return false
+        }
     }
 }
 
@@ -33,7 +67,7 @@ struct CoachStats: Codable, Equatable {
 }
 
 // Helper to handle dynamic JSON
-struct AnyCodable: Codable, Equatable {
+struct CoachAnyCodable: Codable, Equatable {
     let value: Any
     
     init(_ value: Any) {
@@ -51,9 +85,9 @@ struct AnyCodable: Codable, Equatable {
             value = double
         } else if let string = try? container.decode(String.self) {
             value = string
-        } else if let array = try? container.decode([AnyCodable].self) {
+        } else if let array = try? container.decode([CoachAnyCodable].self) {
             value = array.map { $0.value }
-        } else if let dict = try? container.decode([String: AnyCodable].self) {
+        } else if let dict = try? container.decode([String: CoachAnyCodable].self) {
             value = dict.mapValues { $0.value }
         } else {
             value = NSNull()
@@ -73,15 +107,15 @@ struct AnyCodable: Codable, Equatable {
         case let string as String:
             try container.encode(string)
         case let array as [Any]:
-            try container.encode(array.map { AnyCodable($0) })
+            try container.encode(array.map { CoachAnyCodable($0) })
         case let dict as [String: Any]:
-            try container.encode(dict.mapValues { AnyCodable($0) })
+            try container.encode(dict.mapValues { CoachAnyCodable($0) })
         default:
             try container.encodeNil()
         }
     }
     
-    static func == (lhs: AnyCodable, rhs: AnyCodable) -> Bool {
+    static func == (lhs: CoachAnyCodable, rhs: CoachAnyCodable) -> Bool {
         // Simple equality check
         return String(describing: lhs.value) == String(describing: rhs.value)
     }

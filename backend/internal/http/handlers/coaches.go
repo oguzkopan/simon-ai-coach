@@ -13,6 +13,7 @@ import (
 	fsClient "simon-backend/internal/firestore"
 	"simon-backend/internal/http/middleware"
 	"simon-backend/internal/models"
+	"simon-backend/internal/validation"
 )
 
 // ListCoaches returns a list of coaches (public endpoint)
@@ -125,13 +126,11 @@ func CreateCoach(fs *fsClient.Client) gin.HandlerFunc {
 			return
 		}
 
-		// Validate
-		if req.Title == "" || len(req.Title) > 60 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "title must be 1-60 characters"})
-			return
-		}
-		if len(req.Promise) > 140 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "promise must be <= 140 characters"})
+		// Validate coach including CoachSpec
+		if err := validation.ValidateCoachForCreate(&req); err != nil {
+			errMsg := validation.SanitizeErrorMessage(err)
+			log.Printf("Coach validation failed: %v", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": errMsg})
 			return
 		}
 
@@ -144,6 +143,7 @@ func CreateCoach(fs *fsClient.Client) gin.HandlerFunc {
 			Promise:    req.Promise,
 			Tags:       req.Tags,
 			Blueprint:  req.Blueprint,
+			CoachSpec:  req.CoachSpec, // Include CoachSpec if provided
 			Stats: models.CoachStats{
 				Starts:  0,
 				Saves:   0,
@@ -161,7 +161,7 @@ func CreateCoach(fs *fsClient.Client) gin.HandlerFunc {
 			return
 		}
 
-		log.Printf("Created coach: uid=%s, coachID=%s", uid, coach.ID)
+		log.Printf("Created coach: uid=%s, coachID=%s, hasCoachSpec=%v", uid, coach.ID, coach.CoachSpec != nil)
 		c.JSON(http.StatusCreated, coach)
 	}
 }
@@ -195,6 +195,7 @@ func ForkCoach(fs *fsClient.Client) gin.HandlerFunc {
 			Promise:    original.Promise,
 			Tags:       original.Tags,
 			Blueprint:  original.Blueprint,
+			CoachSpec:  original.CoachSpec, // Copy CoachSpec if present
 			Stats: models.CoachStats{
 				Starts:  0,
 				Saves:   0,
@@ -214,6 +215,95 @@ func ForkCoach(fs *fsClient.Client) gin.HandlerFunc {
 
 		log.Printf("Forked coach: uid=%s, originalID=%s, forkID=%s", uid, coachID, fork.ID)
 		c.JSON(http.StatusCreated, fork)
+	}
+}
+
+// UpdateCoach updates an existing coach
+func UpdateCoach(fs *fsClient.Client) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx := c.Request.Context()
+		uid := middleware.GetUID(c)
+		coachID := c.Param("id")
+
+		// Get existing coach
+		doc, err := fs.DB.Collection("coaches").Doc(coachID).Get(ctx)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "coach not found"})
+			return
+		}
+
+		var existing models.Coach
+		if err := doc.DataTo(&existing); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse coach"})
+			return
+		}
+
+		// Check ownership
+		if existing.OwnerUID != uid {
+			c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
+			return
+		}
+
+		// Parse update request
+		var req models.Coach
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+			return
+		}
+
+		// Validate update including CoachSpec
+		if err := validation.ValidateCoachForUpdate(&req); err != nil {
+			errMsg := validation.SanitizeErrorMessage(err)
+			log.Printf("Coach update validation failed: %v", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": errMsg})
+			return
+		}
+
+		// Build update list
+		updates := []firestore.Update{
+			{Path: "updated_at", Value: time.Now()},
+		}
+
+		// Update fields if provided
+		if req.Title != "" {
+			updates = append(updates, firestore.Update{Path: "title", Value: req.Title})
+		}
+		if req.Promise != "" {
+			updates = append(updates, firestore.Update{Path: "promise", Value: req.Promise})
+		}
+		if req.Tags != nil {
+			updates = append(updates, firestore.Update{Path: "tags", Value: req.Tags})
+		}
+		if req.Blueprint != nil {
+			updates = append(updates, firestore.Update{Path: "blueprint", Value: req.Blueprint})
+		}
+		if req.CoachSpec != nil {
+			updates = append(updates, firestore.Update{Path: "coachSpec", Value: req.CoachSpec})
+		}
+
+		// Apply updates
+		_, err = fs.DB.Collection("coaches").Doc(coachID).Update(ctx, updates)
+		if err != nil {
+			log.Printf("Error updating coach: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update coach"})
+			return
+		}
+
+		// Fetch updated coach
+		updatedDoc, err := fs.DB.Collection("coaches").Doc(coachID).Get(ctx)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch updated coach"})
+			return
+		}
+
+		var updated models.Coach
+		if err := updatedDoc.DataTo(&updated); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse updated coach"})
+			return
+		}
+
+		log.Printf("Updated coach: uid=%s, coachID=%s, hasCoachSpec=%v", uid, coachID, updated.CoachSpec != nil)
+		c.JSON(http.StatusOK, updated)
 	}
 }
 

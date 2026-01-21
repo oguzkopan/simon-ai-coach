@@ -326,8 +326,10 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Simon;
 				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleTypeRole = Editor;\n    CFBundleURLSchemes =     (\n        \"app-1-84366855987-ios-5af4aea34b61da451b3846\"\n    );\n} {\n    CFBundleTypeRole = Editor;\n    CFBundleURLSchemes =     (\n        \"com.googleusercontent.apps.84366855987-uubbjca006vl48e5ainkiou88n4os2n6\"\n    );\n}";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSCalendarsUsageDescription = "Simon needs calendar access to help you schedule coaching actions and focus sessions directly in your calendar.";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Take photos to share with your coach.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Attach images to coaching sessions for better context.";
+				INFOPLIST_KEY_NSRemindersUsageDescription = "Simon needs reminders access to create actionable reminders from your coaching sessions.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -366,8 +368,10 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Simon;
 				INFOPLIST_KEY_CFBundleURLTypes = "{\n    CFBundleTypeRole = Editor;\n    CFBundleURLSchemes =     (\n        \"app-1-84366855987-ios-5af4aea34b61da451b3846\"\n    );\n} {\n    CFBundleTypeRole = Editor;\n    CFBundleURLSchemes =     (\n        \"com.googleusercontent.apps.84366855987-uubbjca006vl48e5ainkiou88n4os2n6\"\n    );\n}";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSCalendarsUsageDescription = "Simon needs calendar access to help you schedule coaching actions and focus sessions directly in your calendar.";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Take photos to share with your coach.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Attach images to coaching sessions for better context.";
+				INFOPLIST_KEY_NSRemindersUsageDescription = "Simon needs reminders access to create actionable reminders from your coaching sessions.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

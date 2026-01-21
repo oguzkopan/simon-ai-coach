@@ -25,7 +25,8 @@ type Config struct {
 	ProTierMessagesPerSession  int
 
 	// RevenueCat
-	RevenueCatAPIKey string
+	RevenueCatAPIKey       string
+	RevenueCatWebhookSecret string
 }
 
 func Load() Config {
@@ -43,7 +44,8 @@ func Load() Config {
 		FreeTierMessagesPerSession: getEnvInt("FREE_TIER_MESSAGES_PER_SESSION", 10),
 		ProTierMessagesPerSession:  getEnvInt("PRO_TIER_MESSAGES_PER_SESSION", 100),
 
-		RevenueCatAPIKey: getEnv("REVENUECAT_API_KEY", ""),
+		RevenueCatAPIKey:       getEnv("REVENUECAT_API_KEY", ""),
+		RevenueCatWebhookSecret: getEnv("REVENUECAT_WEBHOOK_SECRET", ""),
 	}
 
 	return c

@@ -10,6 +10,50 @@ struct ChatView: View {
         _viewModel = StateObject(wrappedValue: viewModel)
     }
     
+    // MARK: - Save Plan
+    
+    private func savePlan(_ planInfo: PlanCardPayload.PlanInfo) async {
+        // Convert PlanInfo to Plan
+        let plan = Plan(
+            id: UUID().uuidString,
+            uid: "", // Will be set by backend
+            coachId: viewModel.coachName,
+            title: planInfo.title,
+            objective: planInfo.objective,
+            horizon: PlanHorizon(rawValue: planInfo.horizon.lowercased()) ?? .week,
+            milestones: planInfo.milestones.map { milestone in
+                Milestone(
+                    id: UUID().uuidString,
+                    title: milestone.label,
+                    description: milestone.successMetric,
+                    dueDate: nil, // Parse from dueDateHint if needed
+                    status: .pending
+                )
+            },
+            nextActions: planInfo.nextActions.enumerated().map { index, actionTitle in
+                NextAction(
+                    id: "action_\(index + 1)",
+                    title: actionTitle,
+                    durationMin: nil,
+                    energy: nil,
+                    when: nil,
+                    status: .pending,
+                    completedAt: nil
+                )
+            },
+            status: .active,
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+        
+        let apiClient = SimonAPIClient.shared
+        do {
+            _ = try await apiClient.createPlan(coachId: viewModel.coachName, plan: plan)
+        } catch {
+            viewModel.errorMessage = "Failed to save plan: \(error.localizedDescription)"
+        }
+    }
+    
     var body: some View {
         VStack(spacing: 0) {
             // Messages
@@ -33,6 +77,47 @@ struct ChatView: View {
                                     viewModel.pinAsSystem(msg)
                                 })
                                 .id(message.id)
+                            }
+                            
+                            // Display cards after messages
+                            if let nextActions = viewModel.nextActionsCard {
+                                NextActionsCard(
+                                    items: nextActions.items,
+                                    onActionComplete: { actionId in
+                                        // Handle action completion
+                                    },
+                                    onConvertToReminder: { action in
+                                        // Handle convert to reminder
+                                    },
+                                    onConvertToCalendar: { action in
+                                        // Handle convert to calendar
+                                    }
+                                )
+                                .padding(.top, 8)
+                            }
+                            
+                            if let plan = viewModel.planCard {
+                                PlanCard(
+                                    planInfo: plan.plan,
+                                    onSave: {
+                                        // Handle save plan
+                                        Task {
+                                            await savePlan(plan.plan)
+                                        }
+                                    }
+                                )
+                                .padding(.top, 8)
+                            }
+                            
+                            if let review = viewModel.weeklyReviewCard {
+                                WeeklyReviewCard(review: WeeklyReview(
+                                    wins: review.review.wins,
+                                    misses: review.review.misses,
+                                    rootCauses: review.review.rootCauses,
+                                    nextWeekFocus: review.review.nextWeekFocus,
+                                    commitments: review.review.commitments.map { Commitment(text: $0) }
+                                ))
+                                    .padding(.top, 8)
                             }
                         }
                     }
@@ -99,6 +184,19 @@ struct ChatView: View {
                         metrics: metrics
                     )
                 }
+            }
+        }
+        .sheet(isPresented: $viewModel.showToolConfirmation) {
+            if let toolRequest = viewModel.toolRequest {
+                ToolConfirmationSheet(
+                    toolRequest: toolRequest,
+                    onApprove: {
+                        await viewModel.approveToolExecution()
+                    },
+                    onDecline: {
+                        viewModel.declineToolExecution()
+                    }
+                )
             }
         }
     }

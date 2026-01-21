@@ -23,6 +23,77 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 32) {
                     // Show sign-in section if not authenticated
                     if !authManager.isAuthenticated {
+                        signInSection
+                    }
+                    
+                    previewSection
+                    themeSection
+                    accentColorSection
+                    typographySection
+                    textSizeSection
+                    
+                    if authManager.isAuthenticated {
+                        accountSection
+                    }
+                    
+                    featuresSection
+                    aboutSection
+                }
+                .padding(20)
+                .padding(.bottom, 40)
+            }
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("Appearance")
+            .navigationBarTitleDisplayMode(.inline)
+            .preferredColorScheme(theme.colorSchemeOverride())
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: { dismiss() }) {
+                        Image(systemName: "arrow.left")
+                            .foregroundColor(.primary)
+                    }
+                }
+                
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                    .foregroundColor(theme.accentPrimary)
+                }
+            }
+        }
+        .alert("Sign Out", isPresented: $vm.showLogoutConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Sign Out", role: .destructive) {
+                vm.signOut()
+            }
+        } message: {
+            Text("Are you sure you want to sign out?")
+        }
+        .alert("Delete Account", isPresented: $vm.showDeleteConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                Task {
+                    await vm.deleteAccount()
+                }
+            }
+        } message: {
+            Text("This will permanently delete your account and all your data. This action cannot be undone.")
+        }
+        .alert("Error", isPresented: .constant(vm.errorMessage != nil)) {
+            Button("OK") {
+                vm.errorMessage = nil
+            }
+        } message: {
+            if let errorMessage = vm.errorMessage {
+                Text(errorMessage)
+            }
+        }
+    }
+    
+    // MARK: - Sign In Section
+    
+    private var signInSection: some View {
                         VStack(spacing: 20) {
                             VStack(spacing: 12) {
                                 Image(systemName: "person.circle.fill")
@@ -98,350 +169,349 @@ struct SettingsView: View {
                             Divider()
                                 .padding(.vertical, 12)
                         }
-                    }
-                    
-                    // Preview Section (always visible)
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("PREVIEW")
-                                .font(theme.font(11, weight: .semibold))
-                                .foregroundColor(.secondary)
-                                .tracking(0.5)
-                            
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text("SYSTEM UPDATE")
-                                    .font(theme.font(11, weight: .semibold))
-                                    .foregroundColor(theme.accentPrimary)
-                                    .tracking(0.5)
-                                
-                                Text("Focus on systems, not goals.")
-                                    .font(theme.font(24, weight: .bold))
-                                    .foregroundColor(.primary)
-                                
-                                Text("You do not rise to the level of your goals. You fall to the level of your systems.")
-                                    .font(theme.font(15))
-                                    .foregroundColor(.secondary)
-                                    .lineSpacing(4)
-                            }
-                            .padding(20)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color(.systemBackground))
-                            .cornerRadius(16)
-                            .shadow(color: Color.black.opacity(0.05), radius: 10, x: 0, y: 4)
-                        }
-                        
-                        // Theme Section (always visible)
-                        VStack(alignment: .leading, spacing: 16) {
-                            Text("THEME")
-                                .font(theme.font(11, weight: .semibold))
-                                .foregroundColor(.secondary)
-                                .tracking(0.5)
-                            
-                            HStack(spacing: 12) {
-                                ThemeButton(title: "System", isSelected: theme.settings.appearance == .system) {
-                                    theme.settings.appearance = .system
-                                }
-                                ThemeButton(title: "Light", isSelected: theme.settings.appearance == .light) {
-                                    theme.settings.appearance = .light
-                                }
-                                ThemeButton(title: "Dark", isSelected: theme.settings.appearance == .dark) {
-                                    theme.settings.appearance = .dark
-                                }
-                            }
-                        }
-                        
-                        // Accent Color Section (always visible)
-                        VStack(alignment: .leading, spacing: 16) {
-                            Text("ACCENT COLOR")
-                                .font(theme.font(11, weight: .semibold))
-                                .foregroundColor(.secondary)
-                                .tracking(0.5)
-                            
-                            HStack(spacing: 12) {
-                                Spacer()
-                                ColorButton(color: Color(hex: "5856D6"), isSelected: theme.settings.colorStack == .indigo) {
-                                    theme.settings.colorStack = .indigo
-                                }
-                                ColorButton(color: Color(hex: "30B0C7"), isSelected: theme.settings.colorStack == .teal) {
-                                    theme.settings.colorStack = .teal
-                                }
-                                ColorButton(color: Color(hex: "00C7BE"), isSelected: theme.settings.colorStack == .mint) {
-                                    theme.settings.colorStack = .mint
-                                }
-                                ColorButton(color: Color(hex: "FF9500"), isSelected: theme.settings.colorStack == .orange) {
-                                    theme.settings.colorStack = .orange
-                                }
-                                ColorButton(color: Color(hex: "FF2D55"), isSelected: theme.settings.colorStack == .rose) {
-                                    theme.settings.colorStack = .rose
-                                }
-                                ColorButton(color: Color(hex: "AF52DE"), isSelected: theme.settings.colorStack == .purple) {
-                                    theme.settings.colorStack = .purple
-                                }
-                                Spacer()
-                            }
-                            .padding(.vertical, 8)
-                        }
-                        
-                        // Typography Section (always visible)
-                        VStack(alignment: .leading, spacing: 16) {
-                            Text("FONT STYLE")
-                                .font(theme.font(11, weight: .semibold))
-                                .foregroundColor(.secondary)
-                                .tracking(0.5)
-                            
-                            HStack(spacing: 12) {
-                                FontStyleButton(title: "System", fontTheme: .system, isSelected: theme.settings.fontTheme == .system) {
-                                    theme.settings.fontTheme = .system
-                                }
-                                FontStyleButton(title: "Rounded", fontTheme: .rounded, isSelected: theme.settings.fontTheme == .rounded) {
-                                    theme.settings.fontTheme = .rounded
-                                }
-                                FontStyleButton(title: "Serif", fontTheme: .serif, isSelected: theme.settings.fontTheme == .serif) {
-                                    theme.settings.fontTheme = .serif
-                                }
-                            }
-                        }
-                        
-                        // Text Size Section (always visible)
-                        VStack(alignment: .leading, spacing: 16) {
-                            Text("TEXT SIZE")
-                                .font(theme.font(11, weight: .semibold))
-                                .foregroundColor(.secondary)
-                                .tracking(0.5)
-                            
-                            VStack(spacing: 12) {
-                                HStack {
-                                    Text("A")
-                                        .font(.system(size: 14))
-                                        .foregroundColor(.secondary)
-                                    
-                                    Spacer()
-                                    
-                                    Text("A")
-                                        .font(.system(size: 24, weight: .semibold))
-                                        .foregroundColor(.primary)
-                                }
-                                
-                                HStack(spacing: 0) {
-                                    ForEach([TextScale.small, TextScale.medium, TextScale.large, TextScale.extraLarge], id: \.self) { scale in
-                                        Button(action: {
-                                            theme.settings.textScale = scale
-                                        }) {
-                                            Circle()
-                                                .fill(theme.settings.textScale == scale ? theme.accentPrimary : Color(.systemGray5))
-                                                .frame(width: 12, height: 12)
-                                                .padding(12)
-                                        }
-                                        .buttonStyle(.plain)
-                                        
-                                        if scale != .extraLarge {
-                                            Rectangle()
-                                                .fill(Color(.systemGray5))
-                                                .frame(height: 2)
-                                        }
-                                    }
-                                }
-                                
-                                HStack {
-                                    Button(action: {
-                                        theme.settings.textScale = .small
-                                    }) {
-                                        Text("Small")
-                                            .font(theme.font(11))
-                                            .foregroundColor(.secondary)
-                                            .padding(.vertical, 8)
-                                    }
-                                    .buttonStyle(.plain)
-                                    
-                                    Spacer()
-                                    
-                                    Button(action: {
-                                        theme.settings.textScale = .medium
-                                    }) {
-                                        Text("Medium")
-                                            .font(theme.font(11))
-                                            .foregroundColor(.secondary)
-                                            .padding(.vertical, 8)
-                                    }
-                                    .buttonStyle(.plain)
-                                    
-                                    Spacer()
-                                    
-                                    Button(action: {
-                                        theme.settings.textScale = .large
-                                    }) {
-                                        Text("Large")
-                                            .font(theme.font(11))
-                                            .foregroundColor(.secondary)
-                                            .padding(.vertical, 8)
-                                    }
-                                    .buttonStyle(.plain)
-                                    
-                                    Spacer()
-                                    
-                                    Button(action: {
-                                        theme.settings.textScale = .extraLarge
-                                    }) {
-                                        Text("X-Large")
-                                            .font(theme.font(11))
-                                            .foregroundColor(.secondary)
-                                            .padding(.vertical, 8)
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                            .padding(20)
-                            .background(Color(.systemBackground))
-                            .cornerRadius(16)
-                            .shadow(color: Color.black.opacity(0.05), radius: 10, x: 0, y: 4)
-                        }
-                        
-                        // Account Section (only when authenticated)
-                        if authManager.isAuthenticated {
-                        VStack(alignment: .leading, spacing: 16) {
-                            Text("ACCOUNT")
-                                .font(theme.font(11, weight: .semibold))
-                                .foregroundColor(.secondary)
-                                .tracking(0.5)
-                            
-                            VStack(spacing: 12) {
-                                Button(action: {
-                                    vm.showLogoutConfirmation = true
-                                }) {
-                                    HStack {
-                                        Text("Sign Out")
-                                            .font(theme.font(15, weight: .semibold))
-                                            .foregroundColor(.primary)
-                                        Spacer()
-                                        Image(systemName: "rectangle.portrait.and.arrow.right")
-                                            .foregroundColor(.secondary)
-                                    }
-                                    .padding(16)
-                                    .background(Color(.systemBackground))
-                                    .cornerRadius(12)
-                                }
-                                .buttonStyle(.plain)
-                                
-                                Button(action: {
-                                    vm.showDeleteConfirmation = true
-                                }) {
-                                    HStack {
-                                        Text("Delete Account")
-                                            .font(theme.font(15, weight: .semibold))
-                                            .foregroundColor(.red)
-                                        Spacer()
-                                        Image(systemName: "trash")
-                                            .foregroundColor(.red)
-                                    }
-                                    .padding(16)
-                                    .background(Color(.systemBackground))
-                                    .cornerRadius(12)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        
-                        // About Section (always visible)
-                        VStack(alignment: .leading, spacing: 16) {
-                            Text("ABOUT")
-                                .font(theme.font(11, weight: .semibold))
-                                .foregroundColor(.secondary)
-                                .tracking(0.5)
-                            
-                            VStack(spacing: 0) {
-                                HStack {
-                                    Text("Version")
-                                        .font(theme.font(15))
-                                    Spacer()
-                                    Text(vm.appVersion)
-                                        .font(theme.font(15))
-                                        .foregroundColor(.secondary)
-                                }
-                                .padding(16)
-                                
-                                Divider()
-                                
-                                Link(destination: URL(string: "https://simon.app/terms")!) {
-                                    HStack {
-                                        Text("Terms of Service")
-                                            .font(theme.font(15))
-                                            .foregroundColor(.primary)
-                                        Spacer()
-                                        Image(systemName: "arrow.up.right")
-                                            .font(.system(size: 12))
-                                            .foregroundColor(.secondary)
-                                    }
-                                    .padding(16)
-                                }
-                                
-                                Divider()
-                                
-                                Link(destination: URL(string: "https://simon.app/privacy")!) {
-                                    HStack {
-                                        Text("Privacy Policy")
-                                            .font(theme.font(15))
-                                            .foregroundColor(.primary)
-                                        Spacer()
-                                        Image(systemName: "arrow.up.right")
-                                            .font(.system(size: 12))
-                                            .foregroundColor(.secondary)
-                                    }
-                                    .padding(16)
-                                }
-                            }
-                            .background(Color(.systemBackground))
-                            .cornerRadius(12)
-                        }
-                    }
-                }
-                .padding(20)
-                .padding(.bottom, 40)
+    }
+    
+    // MARK: - Preview Section
+    
+    private var previewSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("PREVIEW")
+                .font(theme.font(11, weight: .semibold))
+                .foregroundColor(.secondary)
+                .tracking(0.5)
+            
+            VStack(alignment: .leading, spacing: 12) {
+                Text("SYSTEM UPDATE")
+                    .font(theme.font(11, weight: .semibold))
+                    .foregroundColor(theme.accentPrimary)
+                    .tracking(0.5)
+                
+                Text("Focus on systems, not goals.")
+                    .font(theme.font(24, weight: .bold))
+                    .foregroundColor(.primary)
+                
+                Text("You do not rise to the level of your goals. You fall to the level of your systems.")
+                    .font(theme.font(15))
+                    .foregroundColor(.secondary)
+                    .lineSpacing(4)
             }
-            .background(Color(.systemGroupedBackground))
-            .navigationTitle("Appearance")
-            .navigationBarTitleDisplayMode(.inline)
-            .preferredColorScheme(theme.colorSchemeOverride())
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button(action: { dismiss() }) {
-                        Image(systemName: "arrow.left")
-                            .foregroundColor(.primary)
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.systemBackground))
+            .cornerRadius(16)
+            .shadow(color: Color.black.opacity(0.05), radius: 10, x: 0, y: 4)
+        }
+    }
+    
+    // MARK: - Theme Section
+    
+    private var themeSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("THEME")
+                .font(theme.font(11, weight: .semibold))
+                .foregroundColor(.secondary)
+                .tracking(0.5)
+            
+            HStack(spacing: 12) {
+                ThemeButton(title: "System", isSelected: theme.settings.appearance == .system) {
+                    theme.settings.appearance = .system
+                }
+                ThemeButton(title: "Light", isSelected: theme.settings.appearance == .light) {
+                    theme.settings.appearance = .light
+                }
+                ThemeButton(title: "Dark", isSelected: theme.settings.appearance == .dark) {
+                    theme.settings.appearance = .dark
+                }
+            }
+        }
+    }
+    
+    // MARK: - Accent Color Section
+    
+    private var accentColorSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("ACCENT COLOR")
+                .font(theme.font(11, weight: .semibold))
+                .foregroundColor(.secondary)
+                .tracking(0.5)
+            
+            HStack(spacing: 12) {
+                Spacer()
+                ColorButton(color: Color(hex: "5856D6"), isSelected: theme.settings.colorStack == .indigo) {
+                    theme.settings.colorStack = .indigo
+                }
+                ColorButton(color: Color(hex: "30B0C7"), isSelected: theme.settings.colorStack == .teal) {
+                    theme.settings.colorStack = .teal
+                }
+                ColorButton(color: Color(hex: "00C7BE"), isSelected: theme.settings.colorStack == .mint) {
+                    theme.settings.colorStack = .mint
+                }
+                ColorButton(color: Color(hex: "FF9500"), isSelected: theme.settings.colorStack == .orange) {
+                    theme.settings.colorStack = .orange
+                }
+                ColorButton(color: Color(hex: "FF2D55"), isSelected: theme.settings.colorStack == .rose) {
+                    theme.settings.colorStack = .rose
+                }
+                ColorButton(color: Color(hex: "AF52DE"), isSelected: theme.settings.colorStack == .purple) {
+                    theme.settings.colorStack = .purple
+                }
+                Spacer()
+            }
+            .padding(.vertical, 8)
+        }
+    }
+    
+    // MARK: - Typography Section
+    
+    private var typographySection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("FONT STYLE")
+                .font(theme.font(11, weight: .semibold))
+                .foregroundColor(.secondary)
+                .tracking(0.5)
+            
+            HStack(spacing: 12) {
+                FontStyleButton(title: "System", fontTheme: .system, isSelected: theme.settings.fontTheme == .system) {
+                    theme.settings.fontTheme = .system
+                }
+                FontStyleButton(title: "Rounded", fontTheme: .rounded, isSelected: theme.settings.fontTheme == .rounded) {
+                    theme.settings.fontTheme = .rounded
+                }
+                FontStyleButton(title: "Serif", fontTheme: .serif, isSelected: theme.settings.fontTheme == .serif) {
+                    theme.settings.fontTheme = .serif
+                }
+            }
+        }
+    }
+    
+    // MARK: - Text Size Section
+    
+    private var textSizeSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("TEXT SIZE")
+                .font(theme.font(11, weight: .semibold))
+                .foregroundColor(.secondary)
+                .tracking(0.5)
+            
+            VStack(spacing: 12) {
+                HStack {
+                    Text("A")
+                        .font(.system(size: 14))
+                        .foregroundColor(.secondary)
+                    
+                    Spacer()
+                    
+                    Text("A")
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundColor(.primary)
+                }
+                
+                HStack(spacing: 0) {
+                    ForEach([TextScale.small, TextScale.medium, TextScale.large, TextScale.extraLarge], id: \.self) { scale in
+                        Button(action: {
+                            theme.settings.textScale = scale
+                        }) {
+                            Circle()
+                                .fill(theme.settings.textScale == scale ? theme.accentPrimary : Color(.systemGray5))
+                                .frame(width: 12, height: 12)
+                                .padding(12)
+                        }
+                        .buttonStyle(.plain)
+                        
+                        if scale != .extraLarge {
+                            Rectangle()
+                                .fill(Color(.systemGray5))
+                                .frame(height: 2)
+                        }
                     }
                 }
                 
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
-                        dismiss()
+                HStack {
+                    Button(action: {
+                        theme.settings.textScale = .small
+                    }) {
+                        Text("Small")
+                            .font(theme.font(11))
+                            .foregroundColor(.secondary)
+                            .padding(.vertical, 8)
                     }
-                    .foregroundColor(theme.accentPrimary)
+                    .buttonStyle(.plain)
+                    
+                    Spacer()
+                    
+                    Button(action: {
+                        theme.settings.textScale = .medium
+                    }) {
+                        Text("Medium")
+                            .font(theme.font(11))
+                            .foregroundColor(.secondary)
+                            .padding(.vertical, 8)
+                    }
+                    .buttonStyle(.plain)
+                    
+                    Spacer()
+                    
+                    Button(action: {
+                        theme.settings.textScale = .large
+                    }) {
+                        Text("Large")
+                            .font(theme.font(11))
+                            .foregroundColor(.secondary)
+                            .padding(.vertical, 8)
+                    }
+                    .buttonStyle(.plain)
+                    
+                    Spacer()
+                    
+                    Button(action: {
+                        theme.settings.textScale = .extraLarge
+                    }) {
+                        Text("X-Large")
+                            .font(theme.font(11))
+                            .foregroundColor(.secondary)
+                            .padding(.vertical, 8)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
+            .padding(20)
+            .background(Color(.systemBackground))
+            .cornerRadius(16)
+            .shadow(color: Color.black.opacity(0.05), radius: 10, x: 0, y: 4)
         }
-        .alert("Sign Out", isPresented: $vm.showLogoutConfirmation) {
-            Button("Cancel", role: .cancel) { }
-            Button("Sign Out", role: .destructive) {
-                vm.signOut()
+    }
+    
+    // MARK: - Account Section
+    
+    private var accountSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("ACCOUNT")
+                .font(theme.font(11, weight: .semibold))
+                .foregroundColor(.secondary)
+                .tracking(0.5)
+            
+            VStack(spacing: 12) {
+                Button(action: {
+                    vm.showLogoutConfirmation = true
+                }) {
+                    HStack {
+                        Text("Sign Out")
+                            .font(theme.font(15, weight: .semibold))
+                            .foregroundColor(.primary)
+                        Spacer()
+                        Image(systemName: "rectangle.portrait.and.arrow.right")
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(16)
+                    .background(Color(.systemBackground))
+                    .cornerRadius(12)
+                }
+                .buttonStyle(.plain)
+                
+                Button(action: {
+                    vm.showDeleteConfirmation = true
+                }) {
+                    HStack {
+                        Text("Delete Account")
+                            .font(theme.font(15, weight: .semibold))
+                            .foregroundColor(.red)
+                        Spacer()
+                        Image(systemName: "trash")
+                            .foregroundColor(.red)
+                    }
+                    .padding(16)
+                    .background(Color(.systemBackground))
+                    .cornerRadius(12)
+                }
+                .buttonStyle(.plain)
             }
-        } message: {
-            Text("Are you sure you want to sign out?")
         }
-        .alert("Delete Account", isPresented: $vm.showDeleteConfirmation) {
-            Button("Cancel", role: .cancel) { }
-            Button("Delete", role: .destructive) {
-                Task {
-                    await vm.deleteAccount()
+    }
+    
+    // MARK: - Features Section
+    
+    private var featuresSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("FEATURES")
+                .font(theme.font(11, weight: .semibold))
+                .foregroundColor(.secondary)
+                .tracking(0.5)
+            
+            NavigationLink(destination: EventsView(vm: EventsViewModel(
+                apiClient: SimonAPIClient.shared
+            ))) {
+                HStack {
+                    Image(systemName: "calendar")
+                        .foregroundColor(theme.accentPrimary)
+                        .frame(width: 24)
+                    Text("My Events")
+                        .font(theme.font(15))
+                        .foregroundColor(.primary)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+                .padding(16)
+                .background(Color(.systemBackground))
+                .cornerRadius(12)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+    
+    // MARK: - About Section
+    
+    private var aboutSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("ABOUT")
+                .font(theme.font(11, weight: .semibold))
+                .foregroundColor(.secondary)
+                .tracking(0.5)
+            
+            VStack(spacing: 0) {
+                HStack {
+                    Text("Version")
+                        .font(theme.font(15))
+                    Spacer()
+                    Text(vm.appVersion)
+                        .font(theme.font(15))
+                        .foregroundColor(.secondary)
+                }
+                .padding(16)
+                
+                Divider()
+                
+                Link(destination: URL(string: "https://simon.app/terms")!) {
+                    HStack {
+                        Text("Terms of Service")
+                            .font(theme.font(15))
+                            .foregroundColor(.primary)
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(16)
+                }
+                
+                Divider()
+                
+                Link(destination: URL(string: "https://simon.app/privacy")!) {
+                    HStack {
+                        Text("Privacy Policy")
+                            .font(theme.font(15))
+                            .foregroundColor(.primary)
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(16)
                 }
             }
-        } message: {
-            Text("This will permanently delete your account and all your data. This action cannot be undone.")
-        }
-        .alert("Error", isPresented: .constant(vm.errorMessage != nil)) {
-            Button("OK") {
-                vm.errorMessage = nil
-            }
-        } message: {
-            if let errorMessage = vm.errorMessage {
-                Text(errorMessage)
-            }
+            .background(Color(.systemBackground))
+            .cornerRadius(12)
         }
     }
 }

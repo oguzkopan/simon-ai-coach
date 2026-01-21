@@ -137,11 +137,3 @@ class ToastManager: ObservableObject {
         show(.warning, message: message)
     }
 }
-
-#Preview {
-    VStack {
-        Spacer()
-    }
-    .toast(.constant(ToastMessage(type: .success, message: "Coach saved successfully!")))
-    .environmentObject(ThemeStore())
-}

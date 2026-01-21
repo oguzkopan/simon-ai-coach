@@ -20,6 +20,7 @@ final class HomeViewModel: ObservableObject {
     private let networkMonitor = NetworkMonitor.shared
     private let errorHandler = ErrorHandler()
     private var cancellables = Set<AnyCancellable>()
+    private var loadTask: Task<Void, Never>?
     
     init(apiClient: SimonAPI) {
         self.apiClient = apiClient
@@ -35,7 +36,15 @@ final class HomeViewModel: ObservableObject {
             .store(in: &cancellables)
     }
     
+    deinit {
+        // Cancel ongoing task when view model is deallocated
+        loadTask?.cancel()
+    }
+    
     func loadCoaches() async {
+        // Cancel any existing load task
+        loadTask?.cancel()
+        
         guard networkMonitor.isConnected else {
             errorMessage = "No internet connection"
             return
@@ -44,20 +53,31 @@ final class HomeViewModel: ObservableObject {
         isLoading = true
         errorMessage = nil
         
-        do {
-            let tag = selectedCategory == "All" || selectedCategory == nil ? nil : selectedCategory?.lowercased()
-            coaches = try await apiClient.listCoaches(tag: tag, featured: nil)
+        loadTask = Task {
+            do {
+                let tag = selectedCategory == "All" || selectedCategory == nil ? nil : selectedCategory?.lowercased()
+                let fetchedCoaches = try await apiClient.listCoaches(tag: tag, featured: nil)
+                
+                // Check if task was cancelled
+                guard !Task.isCancelled else { return }
+                
+                coaches = fetchedCoaches
+                
+                // Haptic feedback on success
+                HapticManager.shared.light()
+            } catch let error as APIError {
+                guard !Task.isCancelled else { return }
+                handleAPIError(error)
+            } catch {
+                guard !Task.isCancelled else { return }
+                errorMessage = error.localizedDescription
+                HapticManager.shared.error()
+            }
             
-            // Haptic feedback on success
-            HapticManager.shared.light()
-        } catch let error as APIError {
-            handleAPIError(error)
-        } catch {
-            errorMessage = error.localizedDescription
-            HapticManager.shared.error()
+            isLoading = false
         }
         
-        isLoading = false
+        await loadTask?.value
     }
     
     func selectCategory(_ category: String) {

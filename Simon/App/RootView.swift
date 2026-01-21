@@ -10,9 +10,18 @@ import SwiftUI
 struct RootView: View {
     @StateObject private var authManager = AuthenticationManager.shared
     @EnvironmentObject private var theme: ThemeStore
+    @EnvironmentObject private var deepLinkHandler: DeepLinkHandler
     
     @State private var showSignIn = false
     @State private var showOnboarding = !UserDefaults.standard.bool(forKey: "hasCompletedOnboarding")
+    @State private var showEventsView = false
+    
+    // Create API client
+    private var apiClient: SimonAPIClient {
+        SimonAPIClient(
+            baseURL: URL(string: "https://simon-api-pl6ewfkpvq-uc.a.run.app")!
+        )
+    }
     
     var body: some View {
         Group {
@@ -32,6 +41,33 @@ struct RootView: View {
                     .sheet(isPresented: $showSignIn) {
                         SignInView()
                     }
+            }
+        }
+        .sheet(isPresented: $showEventsView) {
+            NavigationStack {
+                if let deepLink = deepLinkHandler.eventsDeepLink {
+                    EventsView(vm: EventsViewModel(
+                        apiClient: apiClient,
+                        initialCoachFilter: deepLink.coachID
+                    ))
+                    .onAppear {
+                        // Apply deep link filters
+                        // The view model will handle the initial filters
+                    }
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            Button("Done") {
+                                showEventsView = false
+                                deepLinkHandler.clearEventsDeepLink()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .onChange(of: deepLinkHandler.eventsDeepLink) { oldValue, newValue in
+            if newValue != nil {
+                showEventsView = true
             }
         }
     }
@@ -398,9 +434,4 @@ struct SignInPromptView: View {
             .padding(.bottom, 20)
         }
     }
-}
-
-#Preview {
-    RootView()
-        .environmentObject(ThemeStore())
 }

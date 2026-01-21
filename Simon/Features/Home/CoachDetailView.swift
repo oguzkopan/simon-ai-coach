@@ -119,6 +119,9 @@ struct CoachDetailView: View {
                 }
                 .padding(.horizontal, 20)
                 
+                // View Events for this Coach - Removed NavigationLink to fix navigation error
+                // Events can be accessed from the Library tab or through deep links
+                
                 // Error message
                 if let errorMessage = errorMessage {
                     Text(errorMessage)

@@ -17,6 +17,7 @@ import (
 	geminiClient "simon-backend/internal/gemini"
 	"simon-backend/internal/http/middleware"
 	"simon-backend/internal/models"
+	"simon-backend/internal/orchestrator"
 	"simon-backend/internal/sse"
 )
 
@@ -80,7 +81,7 @@ func SendMessage(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config
 	}
 }
 
-// StreamChat streams chat responses using SSE
+// StreamChat streams chat responses using SSE with multi-agent orchestration
 func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
@@ -109,9 +110,9 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 		sessionDoc, err := fs.DB.Collection("sessions").Doc(sessionID).Get(ctx)
 		if err != nil {
 			log.Printf("Error getting session: %v", err)
-			_ = sse.Data(c.Writer, models.ChatDelta{
-				Kind:  "error",
-				Error: "session not found",
+			sse.Event(c.Writer, "error", map[string]interface{}{
+				"code":    "SESSION_NOT_FOUND",
+				"message": "session not found",
 			})
 			flusher.Flush()
 			return
@@ -120,115 +121,114 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 		var session models.Session
 		if err := sessionDoc.DataTo(&session); err != nil {
 			log.Printf("Error parsing session: %v", err)
-			_ = sse.Data(c.Writer, models.ChatDelta{
-				Kind:  "error",
-				Error: "failed to parse session",
+			sse.Event(c.Writer, "error", map[string]interface{}{
+				"code":    "SESSION_PARSE_ERROR",
+				"message": "failed to parse session",
 			})
 			flusher.Flush()
 			return
 		}
 
 		if session.UID != uid {
-			_ = sse.Data(c.Writer, models.ChatDelta{
-				Kind:  "error",
-				Error: "access denied",
+			sse.Event(c.Writer, "error", map[string]interface{}{
+				"code":    "ACCESS_DENIED",
+				"message": "access denied",
 			})
 			flusher.Flush()
 			return
 		}
 
-		// Get coach blueprint
-		var coachBlueprint map[string]interface{}
-		if session.CoachID != nil && *session.CoachID != "" {
-			coachDoc, err := fs.DB.Collection("coaches").Doc(*session.CoachID).Get(ctx)
-			if err == nil {
-				var coach models.Coach
-				if err := coachDoc.DataTo(&coach); err == nil {
-					coachBlueprint = coach.Blueprint
-				}
-			}
+		// Get coach ID
+		coachID := ""
+		if session.CoachID != nil {
+			coachID = *session.CoachID
 		}
 
-		// Get conversation history
-		history, err := getConversationHistory(ctx, fs, sessionID)
+		// Create pipeline
+		pipeline := orchestrator.NewPipeline(fs, gm)
+
+		// Execute pipeline
+		output, err := pipeline.Execute(ctx, orchestrator.PipelineInput{
+			SessionID:   sessionID,
+			CoachID:     coachID,
+			UserMessage: req.Message,
+			UID:         uid,
+		})
 		if err != nil {
-			log.Printf("Error getting history: %v", err)
-			_ = sse.Data(c.Writer, models.ChatDelta{
-				Kind:  "error",
-				Error: "failed to get conversation history",
+			log.Printf("Pipeline execution error: %v", err)
+			sse.Event(c.Writer, "error", map[string]interface{}{
+				"code":    "PIPELINE_ERROR",
+				"message": fmt.Sprintf("Pipeline failed: %v", err),
 			})
 			flusher.Flush()
 			return
 		}
 
-		// Build system prompt
-		systemPrompt := buildSystemPrompt(coachBlueprint)
+		// Keep-alive ticker (every 15 seconds)
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
 
-		// Build full prompt with history
-		fullPrompt := systemPrompt + "\n\n" + buildHistoryPrompt(history) + "\n\nUser: " + req.Message
+		// Connection timeout (5 minutes)
+		timeout := time.NewTimer(5 * time.Minute)
+		defer timeout.Stop()
 
-		// Stream from Gemini
-		tokenChan, errChan := gm.GenerateContentStream(ctx, fullPrompt)
+		// Event ID counter
+		eventID := 0
 
-		var fullText string
-
+		// Stream events from pipeline
 		for {
 			select {
-			case token, ok := <-tokenChan:
+			case event, ok := <-output.Stream:
 				if !ok {
-					// Stream finished
-					goto streamDone
-				}
-				fullText += token
-				_ = sse.Data(c.Writer, models.ChatDelta{
-					Kind:  "token",
-					Token: token,
-				})
-				flusher.Flush()
-
-			case err := <-errChan:
-				if err != nil {
-					log.Printf("Stream error: %v", err)
-					_ = sse.Data(c.Writer, models.ChatDelta{
-						Kind:  "error",
-						Error: err.Error(),
-					})
-					flusher.Flush()
+					// Stream closed normally
+					log.Printf("Stream closed: sessionID=%s", sessionID)
 					return
 				}
+
+				// Increment event ID
+				eventID++
+
+				// Debug log the event
+				log.Printf("SSE Event #%d: type=%s, data=%+v", eventID, event.Type, event.Data)
+
+				// Write SSE event with ID
+				if err := sse.EventWithID(c.Writer, fmt.Sprintf("%d", eventID), event.Type, event.Data); err != nil {
+					log.Printf("Error writing SSE event: %v", err)
+					return
+				}
+				flusher.Flush()
+				log.Printf("Flushed event #%d to client", eventID)
+
+				// Exit on completion or error
+				if event.Type == "stream.done" || event.Type == "error" {
+					log.Printf("Stream completed: sessionID=%s, type=%s", sessionID, event.Type)
+					return
+				}
+
+			case <-ticker.C:
+				// Send keep-alive comment
+				if err := sse.KeepAlive(c.Writer); err != nil {
+					log.Printf("Error sending keep-alive: %v", err)
+					return
+				}
+				flusher.Flush()
+
+			case <-timeout.C:
+				// Connection timeout
+				log.Printf("Connection timeout: sessionID=%s", sessionID)
+				sse.Event(c.Writer, "error", map[string]interface{}{
+					"code":    "TIMEOUT",
+					"message": "Connection timeout after 5 minutes",
+				})
+				flusher.Flush()
+				return
+
+			case <-ctx.Done():
+				// Client disconnected
+				log.Printf("Client disconnected: sessionID=%s", sessionID)
+				return
 			}
 		}
-
-	streamDone:
-		// Save assistant message
-		assistantMsg := models.Message{
-			ID:          uuid.New().String(),
-			Role:        "assistant",
-			ContentText: fullText,
-			CreatedAt:   time.Now(),
-		}
-
-		_, err = fs.DB.Collection("sessions").Doc(sessionID).
-			Collection("messages").Doc(assistantMsg.ID).Set(ctx, assistantMsg)
-		if err != nil {
-			log.Printf("Error saving assistant message: %v", err)
-		}
-
-		// Update session timestamp
-		_, err = fs.DB.Collection("sessions").Doc(sessionID).Update(ctx, []firestore.Update{
-			{Path: "updated_at", Value: time.Now()},
-		})
-		if err != nil {
-			log.Printf("Error updating session: %v", err)
-		}
-
-		// Send final event
-		_ = sse.Data(c.Writer, models.ChatDelta{
-			Kind: "final",
-		})
-		flusher.Flush()
-
-		log.Printf("StreamChat completed: sessionID=%s, tokens=%d", sessionID, len(fullText))
 	}
 }
 
@@ -327,3 +327,4 @@ func extractToken(resp *genai.GenerateContentResponse) string {
 	}
 	return ""
 }
+

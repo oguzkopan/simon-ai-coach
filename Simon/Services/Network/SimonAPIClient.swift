@@ -23,7 +23,7 @@ protocol SimonAPI {
     func publishCoach(coachId: String) async throws -> Coach
     func createSession(coachID: String?) async throws -> Session
     func getSession(id: String) async throws -> SessionDetail
-    func streamChat(sessionID: String, userText: String) -> AsyncThrowingStream<ChatDelta, Error>
+    func streamChat(sessionID: String, userText: String) -> AsyncThrowingStream<SSEEvent, Error>
     func listSessions(limit: Int?) async throws -> [Session]
     func listSystems() async throws -> [System]
     func createSystem(system: System) async throws -> System
@@ -34,6 +34,20 @@ protocol SimonAPI {
     func updateContext(context: UserContextData) async throws
     func updateContextPreference(includeContext: Bool) async throws
     func deleteAllUserData() async throws
+    func executeToolRequest(_ request: ToolExecuteRequest) async throws -> ToolExecuteResponse
+    func submitToolResult(_ request: ToolResultRequest) async throws
+    
+    // Plan endpoints
+    func createPlan(coachId: String, plan: Plan) async throws -> Plan
+    func listPlans(status: String?, limit: Int?) async throws -> [Plan]
+    func updatePlan(planId: String, updates: [String: Any]) async throws -> Plan
+    
+    // Event endpoints
+    func getCalendarEvents(coachID: String?, status: String?, limit: Int?, offset: Int?) async throws -> [CalendarEventRecord]
+    func getReminders(coachID: String?, status: String?, limit: Int?, offset: Int?) async throws -> [ReminderRecord]
+    func getScheduledNotifications(coachID: String?, status: String?, limit: Int?, offset: Int?) async throws -> [ScheduledNotificationRecord]
+    func completeReminder(id: String) async throws -> ReminderRecord
+    func cancelNotification(id: String) async throws -> ScheduledNotificationRecord
 }
 
 struct SessionDetail: Codable {
@@ -42,7 +56,9 @@ struct SessionDetail: Codable {
 }
 
 final class SimonAPIClient: SimonAPI {
-    private let baseURL: URL
+    static let shared = SimonAPIClient(baseURL: URL(string: "https://simon-api-pl6ewfkpvq-uc.a.run.app")!)
+    
+    let baseURL: URL
     private let session: URLSession
     private let authManager = AuthenticationManager.shared
     
@@ -275,56 +291,11 @@ final class SimonAPIClient: SimonAPI {
     
     // MARK: - Chat Streaming
     
-    func streamChat(sessionID: String, userText: String) -> AsyncThrowingStream<ChatDelta, Error> {
-        AsyncThrowingStream { continuation in
-            Task {
-                do {
-                    var request = URLRequest(url: baseURL.appendingPathComponent("/v1/sessions/\(sessionID)/stream"))
-                    request.httpMethod = "POST"
-                    request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                    try await addAuthHeader(to: &request)
-                    
-                    // Add the message body
-                    let body: [String: Any] = [
-                        "content_text": userText,
-                        "attachments": []
-                    ]
-                    request.httpBody = try JSONSerialization.data(withJSONObject: body)
-                    
-                    let (bytes, response) = try await session.bytes(for: request)
-                    
-                    guard let httpResponse = response as? HTTPURLResponse else {
-                        throw APIError.invalidResponse
-                    }
-                    
-                    guard (200...299).contains(httpResponse.statusCode) else {
-                        throw APIError.httpError(httpResponse.statusCode)
-                    }
-                    
-                    for try await line in bytes.lines {
-                        // SSE format: "data: <json>"
-                        if line.hasPrefix("data:") {
-                            let payload = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
-                            if let data = payload.data(using: .utf8) {
-                                let decoder = JSONDecoder()
-                                if let delta = try? decoder.decode(ChatDelta.self, from: data) {
-                                    continuation.yield(delta)
-                                    if delta.kind == "final" || delta.kind == "error" {
-                                        continuation.finish()
-                                        return
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-        }
+    func streamChat(sessionID: String, userText: String) -> AsyncThrowingStream<SSEEvent, Error> {
+        let url = baseURL.appendingPathComponent("/v1/sessions/\(sessionID)/stream")
+        let request = ChatStreamRequest(message: userText)
+        let sseManager = SSEStreamManager()
+        return sseManager.connect(url: url, request: request)
     }
     
     // MARK: - Systems
@@ -521,6 +492,314 @@ final class SimonAPIClient: SimonAPI {
         guard (200...299).contains(httpResponse.statusCode) else {
             throw APIError.httpError(httpResponse.statusCode)
         }
+    }
+    
+    // MARK: - Plans
+    
+    func createPlan(coachId: String, plan: Plan) async throws -> Plan {
+        var request = URLRequest(url: baseURL.appendingPathComponent("/v1/plans"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try await addAuthHeader(to: &request)
+        
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        encoder.dateEncodingStrategy = .iso8601
+        request.httpBody = try encoder.encode(plan)
+        
+        let (data, response) = try await session.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw APIError.httpError(httpResponse.statusCode)
+        }
+        
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(Plan.self, from: data)
+    }
+    
+    func listPlans(status: String? = nil, limit: Int? = nil) async throws -> [Plan] {
+        var components = URLComponents(url: baseURL.appendingPathComponent("/v1/plans"), resolvingAgainstBaseURL: false)!
+        
+        var queryItems: [URLQueryItem] = []
+        if let status = status {
+            queryItems.append(URLQueryItem(name: "status", value: status))
+        }
+        if let limit = limit {
+            queryItems.append(URLQueryItem(name: "limit", value: String(limit)))
+        }
+        components.queryItems = queryItems.isEmpty ? nil : queryItems
+        
+        var request = URLRequest(url: components.url!)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try await addAuthHeader(to: &request)
+        
+        let (data, response) = try await session.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw APIError.httpError(httpResponse.statusCode)
+        }
+        
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode([Plan].self, from: data)
+    }
+    
+    func updatePlan(planId: String, updates: [String: Any]) async throws -> Plan {
+        var request = URLRequest(url: baseURL.appendingPathComponent("/v1/plans/\(planId)"))
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try await addAuthHeader(to: &request)
+        
+        request.httpBody = try JSONSerialization.data(withJSONObject: updates)
+        
+        let (data, response) = try await session.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw APIError.httpError(httpResponse.statusCode)
+        }
+        
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(Plan.self, from: data)
+    }
+    
+    // MARK: - Tool Execution
+    
+    func executeToolRequest(_ toolRequest: ToolExecuteRequest) async throws -> ToolExecuteResponse {
+        var request = URLRequest(url: baseURL.appendingPathComponent("/v1/tools/execute"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try await addAuthHeader(to: &request)
+        
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        request.httpBody = try encoder.encode(toolRequest)
+        
+        let (data, response) = try await session.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw APIError.httpError(httpResponse.statusCode)
+        }
+        
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode(ToolExecuteResponse.self, from: data)
+    }
+    
+    func submitToolResult(_ toolResult: ToolResultRequest) async throws {
+        var request = URLRequest(url: baseURL.appendingPathComponent("/v1/tools/result"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try await addAuthHeader(to: &request)
+        
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        request.httpBody = try encoder.encode(toolResult)
+        
+        let (_, response) = try await session.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw APIError.httpError(httpResponse.statusCode)
+        }
+    }
+    
+    // MARK: - Events
+    
+    func getCalendarEvents(
+        coachID: String? = nil,
+        status: String? = nil,
+        limit: Int? = nil,
+        offset: Int? = nil
+    ) async throws -> [CalendarEventRecord] {
+        var components = URLComponents(url: baseURL.appendingPathComponent("/v1/events/calendar"), resolvingAgainstBaseURL: false)!
+        
+        var queryItems: [URLQueryItem] = []
+        if let coachID = coachID {
+            queryItems.append(URLQueryItem(name: "coach_id", value: coachID))
+        }
+        if let status = status {
+            queryItems.append(URLQueryItem(name: "status", value: status))
+        }
+        if let limit = limit {
+            queryItems.append(URLQueryItem(name: "limit", value: String(limit)))
+        }
+        if let offset = offset {
+            queryItems.append(URLQueryItem(name: "offset", value: String(offset)))
+        }
+        components.queryItems = queryItems.isEmpty ? nil : queryItems
+        
+        var request = URLRequest(url: components.url!)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try await addAuthHeader(to: &request)
+        
+        let (data, response) = try await session.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw APIError.httpError(httpResponse.statusCode)
+        }
+        
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode([CalendarEventRecord].self, from: data)
+    }
+    
+    func getReminders(
+        coachID: String? = nil,
+        status: String? = nil,
+        limit: Int? = nil,
+        offset: Int? = nil
+    ) async throws -> [ReminderRecord] {
+        var components = URLComponents(url: baseURL.appendingPathComponent("/v1/events/reminders"), resolvingAgainstBaseURL: false)!
+        
+        var queryItems: [URLQueryItem] = []
+        if let coachID = coachID {
+            queryItems.append(URLQueryItem(name: "coach_id", value: coachID))
+        }
+        if let status = status {
+            queryItems.append(URLQueryItem(name: "status", value: status))
+        }
+        if let limit = limit {
+            queryItems.append(URLQueryItem(name: "limit", value: String(limit)))
+        }
+        if let offset = offset {
+            queryItems.append(URLQueryItem(name: "offset", value: String(offset)))
+        }
+        components.queryItems = queryItems.isEmpty ? nil : queryItems
+        
+        var request = URLRequest(url: components.url!)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try await addAuthHeader(to: &request)
+        
+        let (data, response) = try await session.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw APIError.httpError(httpResponse.statusCode)
+        }
+        
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode([ReminderRecord].self, from: data)
+    }
+    
+    func getScheduledNotifications(
+        coachID: String? = nil,
+        status: String? = nil,
+        limit: Int? = nil,
+        offset: Int? = nil
+    ) async throws -> [ScheduledNotificationRecord] {
+        var components = URLComponents(url: baseURL.appendingPathComponent("/v1/events/notifications"), resolvingAgainstBaseURL: false)!
+        
+        var queryItems: [URLQueryItem] = []
+        if let coachID = coachID {
+            queryItems.append(URLQueryItem(name: "coach_id", value: coachID))
+        }
+        if let status = status {
+            queryItems.append(URLQueryItem(name: "status", value: status))
+        }
+        if let limit = limit {
+            queryItems.append(URLQueryItem(name: "limit", value: String(limit)))
+        }
+        if let offset = offset {
+            queryItems.append(URLQueryItem(name: "offset", value: String(offset)))
+        }
+        components.queryItems = queryItems.isEmpty ? nil : queryItems
+        
+        var request = URLRequest(url: components.url!)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try await addAuthHeader(to: &request)
+        
+        let (data, response) = try await session.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw APIError.httpError(httpResponse.statusCode)
+        }
+        
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode([ScheduledNotificationRecord].self, from: data)
+    }
+    
+    func completeReminder(id: String) async throws -> ReminderRecord {
+        var request = URLRequest(url: baseURL.appendingPathComponent("/v1/events/reminders/\(id)/complete"))
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try await addAuthHeader(to: &request)
+        
+        let (data, response) = try await session.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw APIError.httpError(httpResponse.statusCode)
+        }
+        
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(ReminderRecord.self, from: data)
+    }
+    
+    func cancelNotification(id: String) async throws -> ScheduledNotificationRecord {
+        var request = URLRequest(url: baseURL.appendingPathComponent("/v1/events/notifications/\(id)"))
+        request.httpMethod = "DELETE"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try await addAuthHeader(to: &request)
+        
+        let (data, response) = try await session.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw APIError.httpError(httpResponse.statusCode)
+        }
+        
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(ScheduledNotificationRecord.self, from: data)
     }
 }
 
