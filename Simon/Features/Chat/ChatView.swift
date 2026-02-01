@@ -8,6 +8,7 @@ struct ChatView: View {
     
     init(viewModel: ChatViewModel) {
         _viewModel = StateObject(wrappedValue: viewModel)
+        print("🟢 ChatView init - sessionID: \(viewModel.sessionID)")
     }
     
     // MARK: - Save Plan
@@ -60,7 +61,62 @@ struct ChatView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 12) {
-                        if viewModel.messages.isEmpty {
+                        if viewModel.isLoadingMessages {
+                            // State 1: Loading messages
+                            VStack(spacing: 16) {
+                                ProgressView()
+                                Text("Loading conversation...")
+                                    .font(theme.font(15))
+                                    .foregroundColor(.secondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 100)
+                        } else if let errorMessage = viewModel.errorMessage, viewModel.shouldShowError {
+                            // State 2: Error occurred (only show after delay)
+                            VStack(spacing: 16) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .font(.system(size: 48))
+                                    .foregroundColor(.orange)
+                                Text("Failed to load messages")
+                                    .font(theme.font(17, weight: .semibold))
+                                    .foregroundColor(.primary)
+                                Text(errorMessage)
+                                    .font(theme.font(14))
+                                    .foregroundColor(.secondary)
+                                    .multilineTextAlignment(.center)
+                                    .padding(.horizontal, 40)
+                                
+                                HStack(spacing: 12) {
+                                    Button("Try Again") {
+                                        Task {
+                                            await viewModel.loadMessages()
+                                        }
+                                    }
+                                    .font(theme.font(15, weight: .semibold))
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 24)
+                                    .padding(.vertical, 12)
+                                    .background(theme.accentPrimary)
+                                    .cornerRadius(10)
+                                    
+                                    if errorMessage.contains("sign in") {
+                                        Button("Sign In") {
+                                            // TODO: Show sign in sheet
+                                            print("Show sign in")
+                                        }
+                                        .font(theme.font(15, weight: .semibold))
+                                        .foregroundColor(theme.accentPrimary)
+                                        .padding(.horizontal, 24)
+                                        .padding(.vertical, 12)
+                                        .background(Color(.systemGray6))
+                                        .cornerRadius(10)
+                                    }
+                                }
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 100)
+                        } else if viewModel.messages.isEmpty && viewModel.hasCompletedInitialLoad {
+                            // State 3: Successfully loaded but no messages yet (empty session)
                             VStack(spacing: 16) {
                                 Image(systemName: "bubble.left.and.bubble.right")
                                     .font(.system(size: 48))
@@ -71,7 +127,8 @@ struct ChatView: View {
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.top, 100)
-                        } else {
+                        } else if !viewModel.messages.isEmpty {
+                            // State 4: Messages loaded successfully
                             ForEach(viewModel.messages) { message in
                                 MessageBubble(message: message, onPin: { msg in
                                     viewModel.pinAsSystem(msg)
@@ -139,8 +196,8 @@ struct ChatView: View {
                 }
             }
             
-            // Error banner
-            if let errorMessage = viewModel.errorMessage {
+            // Error banner - only show if there are messages (don't duplicate the error state)
+            if let errorMessage = viewModel.errorMessage, !viewModel.messages.isEmpty {
                 HStack {
                     Text(errorMessage)
                         .font(theme.font(13))
@@ -171,8 +228,19 @@ struct ChatView: View {
         }
         .navigationTitle(viewModel.coachName)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .tabBar)
+        .onAppear {
+            print("🟢 ChatView appeared - sessionID: \(viewModel.sessionID)")
+        }
         .task {
-            await viewModel.loadMessages()
+            print("🟢 ChatView .task triggered - sessionID: \(viewModel.sessionID)")
+            // Only load messages once when view appears
+            if viewModel.messages.isEmpty && !viewModel.isLoadingMessages {
+                print("🟢 Calling loadMessages()")
+                await viewModel.loadMessages()
+            } else {
+                print("🟡 Skipping loadMessages - messages: \(viewModel.messages.count), isLoading: \(viewModel.isLoadingMessages)")
+            }
         }
         .sheet(isPresented: $viewModel.showPinSheet) {
             if let message = viewModel.selectedMessageForPin {

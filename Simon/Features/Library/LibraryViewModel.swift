@@ -13,6 +13,7 @@ final class LibraryViewModel: ObservableObject {
     @Published var selectedSystem: System?
     
     private let apiClient: SimonAPI
+    private var loadTask: Task<Void, Never>?
     var onNavigateToChat: ((String) -> Void)?
     var onNavigateToMoment: (() -> Void)?
     var onNavigateToSettings: (() -> Void)?
@@ -23,21 +24,30 @@ final class LibraryViewModel: ObservableObject {
     }
     
     func loadData() async {
+        // Cancel any existing load task
+        loadTask?.cancel()
+        
         guard !isLoading else { return }
         
         isLoading = true
         errorMessage = nil
         
-        // Load data concurrently
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask { await self.loadRecentSessions() }
-            group.addTask { await self.loadPinnedSystems() }
+        loadTask = Task {
+            // Load data concurrently
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { await self.loadRecentSessions() }
+                group.addTask { await self.loadPinnedSystems() }
+            }
+            
+            // Organize sessions by time
+            if !Task.isCancelled {
+                organizeSessions()
+            }
+            
+            isLoading = false
         }
         
-        // Organize sessions by time
-        organizeSessions()
-        
-        isLoading = false
+        await loadTask?.value
     }
     
     func refresh() async {
@@ -83,6 +93,7 @@ final class LibraryViewModel: ObservableObject {
     }
     
     func continueSession(_ session: Session) {
+        print("🟢 LibraryViewModel.continueSession - sessionID: \(session.id)")
         onNavigateToChat?(session.id)
     }
     
@@ -100,5 +111,9 @@ final class LibraryViewModel: ObservableObject {
     
     func showAllSessions() {
         onShowAllSessions?()
+    }
+    
+    deinit {
+        loadTask?.cancel()
     }
 }

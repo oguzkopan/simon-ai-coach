@@ -93,7 +93,9 @@ class ExportManager: ObservableObject {
     private func exportSessionAsMarkdown(sessionDetail: SessionDetail) throws -> URL {
         var markdown = "# Coaching Session\n\n"
         markdown += "**Date:** \(formatDate(sessionDetail.session.createdAt))\n\n"
-        markdown += "**Coach:** \(sessionDetail.session.coachID)\n\n"
+        if let coachID = sessionDetail.session.coachID {
+            markdown += "**Coach:** \(coachID)\n\n"
+        }
         markdown += "---\n\n"
         
         // Add messages
@@ -135,7 +137,9 @@ class ExportManager: ObservableObject {
                 <p><strong>Date:</strong> \(formatDate(sessionDetail.session.createdAt))</p>
         """
         
-        html += "<p><strong>Coach:</strong> \(sessionDetail.session.coachID)</p>"
+        if let coachID = sessionDetail.session.coachID {
+            html += "<p><strong>Coach:</strong> \(coachID)</p>"
+        }
         html += "</div><hr>"
         
         // Add messages
@@ -195,7 +199,9 @@ class ExportManager: ObservableObject {
         var text = "COACHING SESSION\n"
         text += "================\n\n"
         text += "Date: \(formatDate(sessionDetail.session.createdAt))\n"
-        text += "Coach: \(sessionDetail.session.coachID)\n"
+        if let coachID = sessionDetail.session.coachID {
+            text += "Coach: \(coachID)\n"
+        }
         text += "\n" + String(repeating: "-", count: 50) + "\n\n"
         
         // Add messages

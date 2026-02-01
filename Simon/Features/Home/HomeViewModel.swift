@@ -25,7 +25,6 @@ final class HomeViewModel: ObservableObject {
     init(apiClient: SimonAPI) {
         self.apiClient = apiClient
         
-        // Monitor network status
         networkMonitor.$isConnected
             .sink { [weak self] isConnected in
                 self?.isOffline = !isConnected
@@ -37,12 +36,10 @@ final class HomeViewModel: ObservableObject {
     }
     
     deinit {
-        // Cancel ongoing task when view model is deallocated
         loadTask?.cancel()
     }
     
     func loadCoaches() async {
-        // Cancel any existing load task
         loadTask?.cancel()
         
         guard networkMonitor.isConnected else {
@@ -54,16 +51,21 @@ final class HomeViewModel: ObservableObject {
         errorMessage = nil
         
         loadTask = Task {
+            // For "All" category, pass nil to get all coaches
+            let tag: String?
+            if selectedCategory == "All" || selectedCategory == nil {
+                tag = nil
+            } else {
+                tag = selectedCategory?.lowercased()
+            }
+            
             do {
-                let tag = selectedCategory == "All" || selectedCategory == nil ? nil : selectedCategory?.lowercased()
                 let fetchedCoaches = try await apiClient.listCoaches(tag: tag, featured: nil)
                 
-                // Check if task was cancelled
                 guard !Task.isCancelled else { return }
                 
                 coaches = fetchedCoaches
                 
-                // Haptic feedback on success
                 HapticManager.shared.light()
             } catch let error as APIError {
                 guard !Task.isCancelled else { return }

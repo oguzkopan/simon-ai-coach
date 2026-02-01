@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"simon-backend/internal/firestore"
 	"simon-backend/internal/gemini"
@@ -61,21 +62,23 @@ func (p *Pipeline) Execute(ctx context.Context, input PipelineInput) (*PipelineO
 	go func() {
 		defer close(stream)
 
-		// Step 1: Router Agent - Classify intent
-		route, err := p.router.Classify(ctx, input.UserMessage, input.UID)
-		if err != nil {
-			stream <- SSEEvent{
-				Type: "error",
-				Data: map[string]interface{}{
-					"code":    "ROUTER_ERROR",
-					"message": fmt.Sprintf("Failed to classify intent: %v", err),
-				},
+		// Step 1: Router Agent - Classify intent (OPTIMIZED: Skip for most messages)
+		// Only use router for specific keywords to save API quota
+		route := p.getQuickRoute(input.UserMessage)
+		
+		// Only call router API if message contains specific keywords
+		if p.shouldUseRouter(input.UserMessage) {
+			routeResult, err := p.router.Classify(ctx, input.UserMessage, input.UID)
+			if err != nil {
+				// Fallback to default route instead of failing
+				fmt.Printf("Router classification failed (using default): %v\n", err)
+			} else {
+				route = routeResult
 			}
-			return
 		}
 
-		// Step 2: Context Builder - Fetch relevant context
-		contextPacket, err := p.contextBuilder.Build(ctx, input.UID, input.CoachID, route)
+		// Step 2: Context Builder - Fetch relevant context (including conversation history)
+		contextPacket, err := p.contextBuilder.Build(ctx, input.UID, input.CoachID, input.SessionID, route)
 		if err != nil {
 			stream <- SSEEvent{
 				Type: "error",
@@ -175,6 +178,38 @@ func (p *Pipeline) Execute(ctx context.Context, input PipelineInput) (*PipelineO
 	}()
 
 	return &PipelineOutput{
-		Stream: stream,
+		Stream:      stream,
+		SessionData: nil,
 	}, nil
+}
+
+// shouldUseRouter determines if we should call the router API
+// This saves API quota by only routing when necessary
+func (p *Pipeline) shouldUseRouter(message string) bool {
+	// Keywords that indicate complex routing needs
+	keywords := []string{
+		"review", "retro", "retrospective", "weekly",
+		"system", "routine", "habit", "schedule",
+		"plan", "strategy", "roadmap",
+	}
+	
+	messageLower := strings.ToLower(message)
+	for _, keyword := range keywords {
+		if strings.Contains(messageLower, keyword) {
+			return true
+		}
+	}
+	
+	return false
+}
+
+// getQuickRoute returns a default route for simple conversations
+func (p *Pipeline) getQuickRoute(message string) *router.Route {
+	return &router.Route{
+		Name:         "quick_nudge",
+		Confidence:   0.8,
+		NeedsPlanner: false,
+		ContextKeys:  []string{"values"},
+		ToolIDs:      []string{},
+	}
 }

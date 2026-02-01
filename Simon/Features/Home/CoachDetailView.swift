@@ -8,11 +8,12 @@ struct CoachDetailView: View {
     @State private var showSignInPrompt = false
     @State private var isStartingSession = false
     @State private var errorMessage: String?
+    @State private var pendingPrompt: String?
     
-    var onStartChat: ((String) -> Void)?
+    var onStartChat: ((String, String?) -> Void)?
     private let apiClient: SimonAPIClient
     
-    init(coach: Coach, apiClient: SimonAPIClient, onStartChat: ((String) -> Void)? = nil) {
+    init(coach: Coach, apiClient: SimonAPIClient, onStartChat: ((String, String?) -> Void)? = nil) {
         self.coach = coach
         self.apiClient = apiClient
         self.onStartChat = onStartChat
@@ -191,7 +192,9 @@ struct CoachDetailView: View {
                 let session = try await apiClient.createSession(coachID: coach.id)
                 await MainActor.run {
                     isStartingSession = false
-                    onStartChat?(session.id)
+                    // Pass the session ID and any pending prompt
+                    onStartChat?(session.id, pendingPrompt)
+                    pendingPrompt = nil
                 }
             } catch {
                 await MainActor.run {
@@ -203,7 +206,8 @@ struct CoachDetailView: View {
     }
     
     private func startSessionWithPrompt(_ prompt: String) {
-        // Start session and send the prompt
+        // Store the prompt and start session
+        pendingPrompt = prompt
         startSession()
     }
 }

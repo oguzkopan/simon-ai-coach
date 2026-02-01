@@ -46,7 +46,86 @@ func (c *Client) Close() error {
 	return nil
 }
 
-// GenerateContentStream streams content using Gemini
+// GenerateContentStreamWithHistory streams content using Gemini with conversation history
+func (c *Client) GenerateContentStreamWithHistory(ctx context.Context, systemPrompt string, history []interface{}, currentMessage string) (<-chan string, <-chan error) {
+	tokens := make(chan string, 100)
+	errors := make(chan error, 1)
+
+	go func() {
+		defer close(tokens)
+		defer close(errors)
+
+		// Configure generation parameters
+		temperature := float32(0.7)
+		topP := float32(0.95)
+		topK := float32(40)
+		
+		config := &genai.GenerateContentConfig{
+			Temperature:     &temperature,
+			TopP:            &topP,
+			TopK:            &topK,
+			MaxOutputTokens: 2048,
+			SystemInstruction: &genai.Content{
+				Parts: []*genai.Part{{Text: systemPrompt}},
+			},
+		}
+
+		// Build conversation history as genai.Content
+		var contents []*genai.Content
+		for _, msg := range history {
+			if msgMap, ok := msg.(map[string]interface{}); ok {
+				role := "user"
+				if r, ok := msgMap["role"].(string); ok {
+					if r == "assistant" {
+						role = "model" // Gemini uses "model" instead of "assistant"
+					}
+				}
+				
+				text := ""
+				if t, ok := msgMap["content_text"].(string); ok {
+					text = t
+				}
+				
+				if text != "" {
+					contents = append(contents, &genai.Content{
+						Role:  role,
+						Parts: []*genai.Part{{Text: text}},
+					})
+				}
+			}
+		}
+		
+		// Add current user message
+		contents = append(contents, &genai.Content{
+			Role:  "user",
+			Parts: []*genai.Part{{Text: currentMessage}},
+		})
+
+		// Stream responses using the modern API pattern
+		for resp, err := range c.Raw.Models.GenerateContentStream(ctx, c.Model, contents, config) {
+			if err != nil {
+				errors <- fmt.Errorf("gemini stream error: %w", err)
+				return
+			}
+
+			// Extract text from response using resp.Text() helper
+			text := resp.Text()
+			if text != "" {
+				select {
+				case <-ctx.Done():
+					errors <- ctx.Err()
+					return
+				case tokens <- text:
+					// Token sent successfully
+				}
+			}
+		}
+	}()
+
+	return tokens, errors
+}
+
+// GenerateContentStream streams content using Gemini (legacy single-prompt method)
 func (c *Client) GenerateContentStream(ctx context.Context, prompt string) (<-chan string, <-chan error) {
 	tokens := make(chan string, 100)
 	errors := make(chan error, 1)
@@ -55,46 +134,36 @@ func (c *Client) GenerateContentStream(ctx context.Context, prompt string) (<-ch
 		defer close(tokens)
 		defer close(errors)
 
-		// TODO: Implement proper Gemini streaming
-		// For now, generate a helpful coaching response
-		response := "I hear you. Let me help you with that.\n\n" +
-			"Here's what I suggest:\n\n" +
-			"1. Take a moment to clarify what you're trying to achieve\n" +
-			"2. Break it down into a small, actionable next step\n" +
-			"3. Set aside 20 minutes to make progress\n\n" +
-			"What feels like the right first step for you?"
-
-		// Send response in chunks to simulate streaming
-		words := []string{}
-		currentWord := ""
-		for _, char := range response {
-			if char == ' ' || char == '\n' {
-				if currentWord != "" {
-					words = append(words, currentWord)
-					currentWord = ""
-				}
-				if char == '\n' {
-					words = append(words, "\n")
-				} else {
-					words = append(words, " ")
-				}
-			} else {
-				currentWord += string(char)
-			}
-		}
-		if currentWord != "" {
-			words = append(words, currentWord)
+		// Configure generation parameters
+		temperature := float32(0.7)
+		topP := float32(0.95)
+		topK := float32(40)
+		
+		config := &genai.GenerateContentConfig{
+			Temperature:     &temperature,
+			TopP:            &topP,
+			TopK:            &topK,
+			MaxOutputTokens: 2048,
 		}
 
-		// Stream words
-		for _, word := range words {
-			select {
-			case <-ctx.Done():
-				errors <- ctx.Err()
+		// Stream responses using the modern API pattern
+		// genai.Text() is the helper function for creating text content
+		for resp, err := range c.Raw.Models.GenerateContentStream(ctx, c.Model, genai.Text(prompt), config) {
+			if err != nil {
+				errors <- fmt.Errorf("gemini stream error: %w", err)
 				return
-			case tokens <- word:
-				// Small delay to simulate streaming
-				// time.Sleep(20 * time.Millisecond)
+			}
+
+			// Extract text from response using resp.Text() helper
+			text := resp.Text()
+			if text != "" {
+				select {
+				case <-ctx.Done():
+					errors <- ctx.Err()
+					return
+				case tokens <- text:
+					// Token sent successfully
+				}
 			}
 		}
 	}()

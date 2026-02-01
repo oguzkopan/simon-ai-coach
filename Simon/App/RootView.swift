@@ -82,13 +82,24 @@ struct MainTabView: View {
     @State private var selectedTab = 0
     @State private var showSignIn = false
     @State private var browseNavigationPath = NavigationPath()
+    @State private var libraryNavigationPath = NavigationPath()
     @StateObject private var purchasesService = PurchasesService()
+    
+    // Create view models as StateObjects
+    @StateObject private var libraryVM: LibraryViewModel
     
     // Create API client
     private var apiClient: SimonAPIClient {
         SimonAPIClient(
             baseURL: URL(string: "https://simon-api-pl6ewfkpvq-uc.a.run.app")!
         )
+    }
+    
+    init() {
+        let client = SimonAPIClient(
+            baseURL: URL(string: "https://simon-api-pl6ewfkpvq-uc.a.run.app")!
+        )
+        _libraryVM = StateObject(wrappedValue: LibraryViewModel(apiClient: client))
     }
     
     var body: some View {
@@ -106,15 +117,16 @@ struct MainTabView: View {
                         CoachDetailView(
                             coach: coach,
                             apiClient: apiClient,
-                            onStartChat: { sessionId in
-                                browseNavigationPath.append(CoachDestination.chat(sessionId: sessionId, coachName: coach.title))
+                            onStartChat: { sessionId, initialPrompt in
+                                browseNavigationPath.append(CoachDestination.chat(sessionId: sessionId, coachName: coach.title, initialPrompt: initialPrompt))
                             }
                         )
-                    case .chat(let sessionId, let coachName):
+                    case .chat(let sessionId, let coachName, let initialPrompt):
                         ChatView(viewModel: ChatViewModel(
                             sessionID: sessionId,
                             coachName: coachName,
-                            apiClient: apiClient
+                            apiClient: apiClient,
+                            initialPrompt: initialPrompt
                         ))
                     }
                 }
@@ -137,15 +149,28 @@ struct MainTabView: View {
             .tag(1)
             
             // Library Tab
-            NavigationStack {
-                let libraryVM = LibraryViewModel(apiClient: apiClient)
+            NavigationStack(path: $libraryNavigationPath) {
                 LibraryView(vm: libraryVM)
+                    .navigationDestination(for: LibraryDestination.self) { destination in
+                        switch destination {
+                        case .chat(let sessionId, let coachName):
+                            let _ = print("🟢 Creating ChatView - sessionID: \(sessionId), coachName: \(coachName)")
+                            return ChatView(viewModel: ChatViewModel(
+                                sessionID: sessionId,
+                                coachName: coachName,
+                                apiClient: apiClient,
+                                initialPrompt: nil
+                            ))
+                        }
+                    }
                     .onAppear {
+                        print("🟢 Library tab appeared")
                         // Set up navigation callbacks
                         libraryVM.onNavigateToChat = { sessionId in
-                            // Switch to browse tab and navigate
-                            selectedTab = 0
-                            browseNavigationPath.append(CoachDestination.chat(sessionId: sessionId, coachName: "Coach"))
+                            print("🟢 onNavigateToChat called - sessionID: \(sessionId)")
+                            // Navigate within Library tab's own navigation stack
+                            libraryNavigationPath.append(LibraryDestination.chat(sessionId: sessionId, coachName: "Coach"))
+                            print("🟢 Navigation path appended. Path count: \(libraryNavigationPath.count)")
                         }
                         libraryVM.onNavigateToMoment = {
                             selectedTab = 1 // Switch to Moment tab
@@ -175,14 +200,14 @@ struct MainTabView: View {
 // Navigation destination for coach and chat
 enum CoachDestination: Hashable {
     case detail(Coach)
-    case chat(sessionId: String, coachName: String)
+    case chat(sessionId: String, coachName: String, initialPrompt: String?)
     
     static func == (lhs: CoachDestination, rhs: CoachDestination) -> Bool {
         switch (lhs, rhs) {
         case (.detail(let lCoach), .detail(let rCoach)):
             return lCoach.id == rCoach.id
-        case (.chat(let lSessionId, let lCoachName), .chat(let rSessionId, let rCoachName)):
-            return lSessionId == rSessionId && lCoachName == rCoachName
+        case (.chat(let lSessionId, let lCoachName, let lPrompt), .chat(let rSessionId, let rCoachName, let rPrompt)):
+            return lSessionId == rSessionId && lCoachName == rCoachName && lPrompt == rPrompt
         default:
             return false
         }
@@ -193,6 +218,30 @@ enum CoachDestination: Hashable {
         case .detail(let coach):
             hasher.combine("detail")
             hasher.combine(coach.id)
+        case .chat(let sessionId, let coachName, let initialPrompt):
+            hasher.combine("chat")
+            hasher.combine(sessionId)
+            hasher.combine(coachName)
+            if let prompt = initialPrompt {
+                hasher.combine(prompt)
+            }
+        }
+    }
+}
+
+// Navigation destination for library
+enum LibraryDestination: Hashable {
+    case chat(sessionId: String, coachName: String)
+    
+    static func == (lhs: LibraryDestination, rhs: LibraryDestination) -> Bool {
+        switch (lhs, rhs) {
+        case (.chat(let lSessionId, let lCoachName), .chat(let rSessionId, let rCoachName)):
+            return lSessionId == rSessionId && lCoachName == rCoachName
+        }
+    }
+    
+    func hash(into hasher: inout Hasher) {
+        switch self {
         case .chat(let sessionId, let coachName):
             hasher.combine("chat")
             hasher.combine(sessionId)

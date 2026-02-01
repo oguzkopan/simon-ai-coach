@@ -330,58 +330,70 @@ class SSEStreamManager {
                     var currentEvent: String?
                     var currentData: String?
                     var currentID: String?
+                    var buffer = ""
                     
                     print("📡 SSE: Starting to read stream...")
                     
-                    for try await line in bytes.lines {
-                        print("📡 SSE: Received line: \(line.isEmpty ? "<empty>" : line)")
+                    // Read bytes and manually split on newlines to preserve empty lines
+                    for try await byte in bytes {
+                        let char = String(bytes: [byte], encoding: .utf8) ?? ""
                         
-                        if line.isEmpty {
-                            // Event complete - parse and emit
-                            if let eventType = currentEvent, let data = currentData {
-                                print("📡 SSE: Parsing event - type: \(eventType), data: \(data)")
-                                do {
-                                    let event = try self.parseEvent(type: eventType, data: data, id: currentID)
-                                    print("📡 SSE: Yielding event: \(eventType)")
-                                    continuation.yield(event)
-                                    
-                                    // Close stream on completion or error
-                                    if case .streamDone = event {
-                                        print("📡 SSE: Stream done, finishing")
-                                        continuation.finish()
-                                        return
-                                    } else if case .error = event {
-                                        print("📡 SSE: Error event, finishing")
-                                        continuation.finish()
-                                        return
-                                    }
-                                } catch {
-                                    print("❌ SSE: Error parsing event: \(error)")
-                                }
-                            }
+                        if char == "\n" {
+                            let line = buffer
+                            buffer = ""
                             
-                            // Reset for next event
-                            currentEvent = nil
-                            currentData = nil
-                            currentID = nil
-                        } else if line.hasPrefix("id:") {
-                            currentID = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
-                            print("📡 SSE: Event ID: \(currentID ?? "nil")")
-                        } else if line.hasPrefix("event:") {
-                            currentEvent = String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces)
-                            print("📡 SSE: Event type: \(currentEvent ?? "nil")")
-                        } else if line.hasPrefix("data:") {
-                            let dataLine = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
-                            if currentData == nil {
-                                currentData = dataLine
-                            } else {
-                                currentData! += "\n" + dataLine
+                            print("📡 SSE: Received line: \(line.isEmpty ? "<empty>" : line)")
+                            
+                            if line.isEmpty {
+                                // Event complete - parse and emit
+                                if let eventType = currentEvent, let data = currentData {
+                                    print("📡 SSE: Parsing event - type: \(eventType), data length: \(data.count)")
+                                    do {
+                                        let event = try self.parseEvent(type: eventType, data: data, id: currentID)
+                                        print("📡 SSE: Yielding event: \(eventType)")
+                                        continuation.yield(event)
+                                        
+                                        // Close stream on completion or error
+                                        if case .streamDone = event {
+                                            print("📡 SSE: Stream done, finishing")
+                                            continuation.finish()
+                                            return
+                                        } else if case .error = event {
+                                            print("📡 SSE: Error event, finishing")
+                                            continuation.finish()
+                                            return
+                                        }
+                                    } catch {
+                                        print("❌ SSE: Error parsing event: \(error)")
+                                    }
+                                }
+                                
+                                // Reset for next event
+                                currentEvent = nil
+                                currentData = nil
+                                currentID = nil
+                            } else if line.hasPrefix("id:") {
+                                currentID = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+                                print("📡 SSE: Event ID: \(currentID ?? "nil")")
+                            } else if line.hasPrefix("event:") {
+                                currentEvent = String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces)
+                                print("📡 SSE: Event type: \(currentEvent ?? "nil")")
+                            } else if line.hasPrefix("data:") {
+                                let dataLine = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+                                if currentData == nil {
+                                    currentData = dataLine
+                                } else {
+                                    currentData! += "\n" + dataLine
+                                }
+                                print("📡 SSE: Data line added")
+                            } else if line.hasPrefix(":") {
+                                // Comment (keep-alive), ignore
+                                print("📡 SSE: Keep-alive comment")
+                            } else if !line.isEmpty {
+                                print("⚠️ SSE: Unknown line format: \(line)")
                             }
-                            print("📡 SSE: Data accumulated: \(currentData?.prefix(100) ?? "nil")...")
-                        } else if line.hasPrefix(":") {
-                            // Comment (keep-alive), ignore
-                            print("📡 SSE: Keep-alive comment")
-                            continue
+                        } else {
+                            buffer += char
                         }
                     }
                     

@@ -3,7 +3,7 @@ import Foundation
 struct Session: Identifiable, Codable, Equatable {
     let id: String
     let uid: String
-    let coachID: String
+    let coachID: String?
     let title: String
     let mode: String
     let createdAt: Date

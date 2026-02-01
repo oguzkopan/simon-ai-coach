@@ -7,10 +7,13 @@ final class ChatViewModel: ObservableObject {
     @Published var messages: [Message] = []
     @Published var composerText = ""
     @Published var isStreaming = false
+    @Published var isLoadingMessages = false
     @Published var errorMessage: String?
     @Published var showAttachmentPicker = false
     @Published var showPinSheet = false
     @Published var selectedMessageForPin: Message?
+    @Published var shouldShowError = false // Control when to show error UI
+    @Published var hasCompletedInitialLoad = false // Track if we've completed the first load
     
     // New SSE event handling
     @Published var nextActionsCard: NextActionsCardPayload?
@@ -22,31 +25,151 @@ final class ChatViewModel: ObservableObject {
     
     let sessionID: String
     let coachName: String
+    let initialPrompt: String?
     
     private let apiClient: SimonAPI
     private let toolExecutor: ToolExecutor
     private var streamingTask: Task<Void, Never>?
+    private var hasLoadedInitialPrompt = false
+    private var hasLoadedMessages = false // Track if we've already loaded messages
+    private var errorDisplayTask: Task<Void, Never>?
     
     // Session details for tool execution context
     private var sessionUID: String?
     private var sessionCoachID: String?
     
-    init(sessionID: String, coachName: String, apiClient: SimonAPI, toolExecutor: ToolExecutor? = nil) {
+    init(sessionID: String, coachName: String, apiClient: SimonAPI, toolExecutor: ToolExecutor? = nil, initialPrompt: String? = nil) {
+        print("🟢 ChatViewModel init - sessionID: \(sessionID), coachName: \(coachName)")
         self.sessionID = sessionID
         self.coachName = coachName
         self.apiClient = apiClient
         self.toolExecutor = toolExecutor ?? ToolExecutor(apiClient: apiClient)
+        self.initialPrompt = initialPrompt
     }
     
     func loadMessages() async {
+        // Prevent multiple simultaneous loads
+        guard !hasLoadedMessages else {
+            print("⚠️ Messages already loaded, skipping")
+            return
+        }
+        
+        guard !isLoadingMessages else {
+            print("⚠️ Already loading messages, skipping")
+            return
+        }
+        
+        print("🔵 Starting loadMessages for session: \(sessionID)")
+        hasLoadedMessages = true
+        isLoadingMessages = true
+        errorMessage = nil
+        shouldShowError = false
+        
         do {
+            print("📥 Loading messages for session: \(sessionID)")
+            print("📥 API client: \(type(of: apiClient))")
+            
             let detail = try await apiClient.getSession(id: sessionID)
+            
+            print("✅ Successfully received session detail")
+            print("✅ Session ID: \(detail.session.id)")
+            print("✅ Session UID: \(detail.session.uid)")
+            print("✅ Messages count: \(detail.messages.count)")
+            
+            if !detail.messages.isEmpty {
+                print("✅ First message: \(detail.messages[0].contentText.prefix(50))...")
+            }
+            
             messages = detail.messages
             // Store session context for tool execution
             sessionUID = detail.session.uid
             sessionCoachID = detail.session.coachID
-        } catch {
-            errorMessage = error.localizedDescription
+            
+            isLoadingMessages = false
+            hasCompletedInitialLoad = true // Mark as successfully loaded
+            
+            print("✅ Load complete. Messages array has \(messages.count) items")
+            
+            // If we have an initial prompt and haven't sent it yet, send it now
+            if let prompt = initialPrompt, !hasLoadedInitialPrompt, messages.isEmpty {
+                hasLoadedInitialPrompt = true
+                // Set the composer text and trigger send
+                await MainActor.run {
+                    composerText = prompt
+                    // Small delay to ensure UI is ready
+                    Task {
+                        try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+                        send()
+                    }
+                }
+            }
+        } catch let error as NSError {
+            print("❌ Failed to load messages")
+            print("❌ Error domain: \(error.domain)")
+            print("❌ Error code: \(error.code)")
+            print("❌ Error description: \(error.localizedDescription)")
+            print("❌ Error userInfo: \(error.userInfo)")
+            
+            if let underlyingError = error.userInfo[NSUnderlyingErrorKey] as? Error {
+                print("❌ Underlying error: \(underlyingError)")
+            }
+            
+            isLoadingMessages = false
+            hasLoadedMessages = false // Allow retry
+            hasCompletedInitialLoad = false // Mark as failed
+            
+            // Check if it's a 404 (session not found) or 403 (access denied)
+            let errorDesc = error.localizedDescription
+            let errorCode = error.code
+            
+            print("❌ Analyzing error...")
+            
+            if errorCode == 401 || errorDesc.contains("401") || errorDesc.contains("Unauthorized") {
+                print("❌ Detected: Unauthorized (401)")
+                errorMessage = "Please sign in to view your sessions."
+            } else if errorCode == 404 || errorDesc.contains("404") || errorDesc.contains("not found") {
+                print("❌ Detected: Not Found (404)")
+                errorMessage = "Session not found. It may have been deleted."
+            } else if errorCode == 403 || errorDesc.contains("403") || errorDesc.contains("access denied") || errorDesc.contains("Forbidden") {
+                print("❌ Detected: Forbidden (403)")
+                errorMessage = "You don't have access to this session. Please sign in with the account that created it."
+            } else if errorCode == -999 || errorDesc.contains("cancelled") {
+                print("❌ Detected: Cancelled (-999)")
+                // Don't show error for cancelled requests
+                errorMessage = nil
+            } else {
+                print("❌ Detected: Generic error")
+                errorMessage = "Failed to load messages. Please check your connection and try again."
+            }
+            
+            print("❌ Final error message: \(errorMessage ?? "nil")")
+            
+            // Only show error UI after a brief delay to avoid flashing
+            if errorMessage != nil {
+                errorDisplayTask?.cancel()
+                errorDisplayTask = Task {
+                    try? await Task.sleep(nanoseconds: 300_000_000) // 0.3 seconds
+                    if !Task.isCancelled {
+                        print("❌ Showing error UI")
+                        shouldShowError = true
+                    }
+                }
+            }
+            
+            // Initialize with empty messages if loading fails
+            messages = []
+            
+            // Still try to send initial prompt even if loading failed
+            if let prompt = initialPrompt, !hasLoadedInitialPrompt {
+                hasLoadedInitialPrompt = true
+                await MainActor.run {
+                    composerText = prompt
+                    Task {
+                        try? await Task.sleep(nanoseconds: 100_000_000)
+                        send()
+                    }
+                }
+            }
         }
     }
     
@@ -272,5 +395,6 @@ final class ChatViewModel: ObservableObject {
     
     deinit {
         streamingTask?.cancel()
+        errorDisplayTask?.cancel()
     }
 }

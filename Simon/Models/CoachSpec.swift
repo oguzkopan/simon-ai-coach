@@ -29,9 +29,6 @@ struct CoachSpec: Codable, Equatable {
     }
 }
 
-// MARK: - Identity
-
-/// Identity defines the coach's identity and positioning
 struct Identity: Codable, Equatable {
     let name: String
     let tagline: String
@@ -47,7 +44,7 @@ struct Identity: Codable, Equatable {
 struct Persona: Codable, Equatable {
     let archetype: String
     let voice: String
-    let boundaries: [String]
+    let boundaries: [String]?
 }
 
 // MARK: - Style
@@ -64,9 +61,9 @@ struct Style: Codable, Equatable {
 struct Formatting: Codable, Equatable {
     let maxBullets: Int
     let maxSentencesPerParagraph: Int
-    let alwaysEndWith: [String]
+    let alwaysEndWith: [String]?
     let useEmoji: String
-    let allowedMarkdown: [String]
+    let allowedMarkdown: [String]?
 }
 
 /// InteractionRules defines behavioral rules for coach interactions
@@ -81,7 +78,7 @@ struct InteractionRules: Codable, Equatable {
 
 /// Methods defines the coaching frameworks and protocols
 struct Methods: Codable, Equatable {
-    let frameworks: [Framework]
+    let frameworks: [Framework]?
     let defaultProtocols: DefaultProtocols
 }
 
@@ -90,8 +87,8 @@ struct Framework: Codable, Equatable {
     let id: String
     let name: String
     let goal: String
-    let steps: [String]
-    let whenToUse: [String]
+    let steps: [String]?
+    let whenToUse: [String]?
 }
 
 /// DefaultProtocols defines default coaching protocols for different session types
@@ -133,8 +130,8 @@ struct Refusals: Codable, Equatable {
 /// Privacy defines privacy and data handling policies
 struct Privacy: Codable, Equatable {
     let storeSensitiveMemory: Bool
-    let redactPatterns: [String]
-    let userControls: [String]
+    let redactPatterns: [String]?
+    let userControls: [String]?
 }
 
 /// Safety defines safety constraints for coach behavior
@@ -148,9 +145,9 @@ struct Safety: Codable, Equatable {
 
 /// ToolsAllowed defines which tools the coach can use
 struct ToolsAllowed: Codable, Equatable {
-    let clientTools: [String]
-    let serverTools: [String]
-    let requiresUserConfirmation: [String]
+    let clientTools: [String]?
+    let serverTools: [String]?
+    let requiresUserConfirmation: [String]?
     
     enum CodingKeys: String, CodingKey {
         case clientTools = "client_tools"
@@ -208,6 +205,13 @@ struct SchemaDefinition: Codable, Equatable {
         self.type = type
         self.required = required
         self.propertiesData = properties?.mapValues { PropertyValue($0) }
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try container.decode(String.self, forKey: .type)
+        required = try container.decodeIfPresent([String].self, forKey: .required)
+        propertiesData = try container.decodeIfPresent([String: PropertyValue].self, forKey: .propertiesData)
     }
     
     static func == (lhs: SchemaDefinition, rhs: SchemaDefinition) -> Bool {

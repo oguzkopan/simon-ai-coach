@@ -45,7 +45,7 @@ func NewCoachAgent(gm *gemini.Client) *CoachAgent {
 	}
 }
 
-// Generate creates a streaming coaching response
+// Generate creates a streaming coaching response with conversation history
 func (ca *CoachAgent) Generate(
 	ctx context.Context,
 	userMessage string,
@@ -54,9 +54,6 @@ func (ca *CoachAgent) Generate(
 ) (*CoachOutput, error) {
 	// Build system prompt from CoachSpec
 	systemPrompt := ca.buildSystemPrompt(contextPacket.CoachSpec, contextPacket.User, contextPacket.ActivePlans)
-
-	// Combine system prompt with user message
-	fullPrompt := systemPrompt + "\n\nUser: " + userMessage
 
 	// Send stream.open event
 	stream <- SSEEvent{
@@ -67,9 +64,28 @@ func (ca *CoachAgent) Generate(
 		},
 	}
 
-	// Generate streaming response from Gemini
+	// Convert conversation history to interface{} for Gemini client
+	var historyForGemini []interface{}
+	for _, msg := range contextPacket.ConversationHistory {
+		historyForGemini = append(historyForGemini, map[string]interface{}{
+			"role":         msg.Role,
+			"content_text": msg.ContentText,
+		})
+	}
+
+	// Generate streaming response from Gemini WITH conversation history
 	fullText := ""
-	tokenChan, errChan := ca.geminiClient.GenerateContentStream(ctx, fullPrompt)
+	var tokenChan <-chan string
+	var errChan <-chan error
+	
+	if len(historyForGemini) > 0 {
+		// Use history-aware method
+		tokenChan, errChan = ca.geminiClient.GenerateContentStreamWithHistory(ctx, systemPrompt, historyForGemini, userMessage)
+	} else {
+		// First message in conversation - use simple method
+		fullPrompt := systemPrompt + "\n\nUser: " + userMessage
+		tokenChan, errChan = ca.geminiClient.GenerateContentStream(ctx, fullPrompt)
+	}
 
 	// Stream tokens
 	for {
@@ -96,6 +112,9 @@ func (ca *CoachAgent) Generate(
 	}
 
 streamDone:
+
+	// Trim trailing whitespace from the final text
+	fullText = strings.TrimSpace(fullText)
 
 	// Send message.final event
 	stream <- SSEEvent{
@@ -152,7 +171,20 @@ func (ca *CoachAgent) buildSystemPrompt(
 	prompt.WriteString(fmt.Sprintf("- Verbosity: %s\n", spec.Style.Verbosity))
 
 	if len(spec.Style.Formatting.AlwaysEndWith) > 0 {
-		prompt.WriteString(fmt.Sprintf("- Always end with: %v\n", spec.Style.Formatting.AlwaysEndWith))
+		// Convert formatting rules to natural instructions
+		for _, rule := range spec.Style.Formatting.AlwaysEndWith {
+			switch rule {
+			case "one_question":
+				prompt.WriteString("- Always end with one clear question\n")
+			case "one_next_action":
+				prompt.WriteString("- Always suggest one concrete next action\n")
+			case "one_question_one_next_action":
+				prompt.WriteString("- Always end with one question and one next action\n")
+			default:
+				// For other rules, use as-is
+				prompt.WriteString(fmt.Sprintf("- Always end with: %s\n", rule))
+			}
+		}
 	}
 
 	prompt.WriteString("\n")
@@ -202,11 +234,28 @@ func (ca *CoachAgent) buildSystemPrompt(
 
 	// Available tools
 	if len(spec.ToolsAllowed.ClientTools) > 0 || len(spec.ToolsAllowed.ServerTools) > 0 {
-		prompt.WriteString("Available tools:\n")
+		prompt.WriteString("Available tools (USE THESE to help the user):\n")
 		allTools := append(spec.ToolsAllowed.ClientTools, spec.ToolsAllowed.ServerTools...)
 		for _, tool := range allTools {
-			prompt.WriteString(fmt.Sprintf("- %s\n", tool))
+			switch tool {
+			case "calendar_event_create":
+				prompt.WriteString("- calendar_event_create: Schedule events when user wants to block time\n")
+			case "reminder_create":
+				prompt.WriteString("- reminder_create: Create reminders for tasks and follow-ups\n")
+			case "local_notification_schedule":
+				prompt.WriteString("- local_notification_schedule: Schedule notifications for check-ins\n")
+			case "plan_create":
+				prompt.WriteString("- plan_create: Create structured plans with milestones and actions\n")
+			case "memory_write":
+				prompt.WriteString("- memory_write: Save important insights and commitments\n")
+			case "checkin_schedule":
+				prompt.WriteString("- checkin_schedule: Schedule recurring check-ins\n")
+			default:
+				prompt.WriteString(fmt.Sprintf("- %s\n", tool))
+			}
 		}
+		prompt.WriteString("\nIMPORTANT: When you have enough information, PROACTIVELY offer to use these tools.\n")
+		prompt.WriteString("Don't just keep asking questions - take action by creating plans, reminders, or events.\n")
 		prompt.WriteString("\n")
 	}
 
@@ -224,7 +273,14 @@ func (ca *CoachAgent) buildSystemPrompt(
 	prompt.WriteString("\n")
 
 	// Final instructions
-	prompt.WriteString("Respond naturally but follow the style guidelines. Be calm, direct, and actionable.")
+	prompt.WriteString("Respond naturally but follow the style guidelines. Be calm, direct, and actionable.\n\n")
+	prompt.WriteString("COACHING FLOW:\n")
+	prompt.WriteString("1. Review the conversation history to understand context\n")
+	prompt.WriteString("2. If you need clarification, ask ONE focused question\n")
+	prompt.WriteString("3. Once you understand, suggest a concrete action or create a tool (plan, reminder, event)\n")
+	prompt.WriteString("4. Don't endlessly ask questions - move to action after 2-3 exchanges\n")
+	prompt.WriteString("5. When creating tools, be specific with details (times, dates, steps)\n")
+	prompt.WriteString("6. Remember what the user told you in previous messages - maintain context!\n")
 
 	return prompt.String()
 }

@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"simon-backend/internal/firestore"
+	"cloud.google.com/go/firestore"
+	fsClient "simon-backend/internal/firestore"
 	"simon-backend/internal/gemini"
 	"simon-backend/internal/models"
 	"simon-backend/internal/orchestrator/router"
@@ -12,11 +13,12 @@ import (
 
 // ContextPacket contains all context needed for coaching
 type ContextPacket struct {
-	User          *models.User
-	CoachSpec     *models.CoachSpec
-	ActivePlans   []models.Plan
-	RecentSummary string
-	RetrievalHits []MemoryHit
+	User               *models.User
+	CoachSpec          *models.CoachSpec
+	ActivePlans        []models.Plan
+	RecentSummary      string
+	RetrievalHits      []MemoryHit
+	ConversationHistory []models.Message // Past messages in this session
 }
 
 // MemoryHit represents a memory search result
@@ -29,12 +31,12 @@ type MemoryHit struct {
 
 // ContextBuilder builds context packets for coaching sessions
 type ContextBuilder struct {
-	fs           *firestore.Client
+	fs           *fsClient.Client
 	geminiClient *gemini.Client
 }
 
 // NewContextBuilder creates a new context builder
-func NewContextBuilder(fs *firestore.Client, gm *gemini.Client) *ContextBuilder {
+func NewContextBuilder(fs *fsClient.Client, gm *gemini.Client) *ContextBuilder {
 	return &ContextBuilder{
 		fs:           fs,
 		geminiClient: gm,
@@ -42,7 +44,7 @@ func NewContextBuilder(fs *firestore.Client, gm *gemini.Client) *ContextBuilder 
 }
 
 // Build constructs a complete context packet
-func (cb *ContextBuilder) Build(ctx context.Context, uid string, coachID string, route *router.Route) (*ContextPacket, error) {
+func (cb *ContextBuilder) Build(ctx context.Context, uid string, coachID string, sessionID string, route *router.Route) (*ContextPacket, error) {
 	packet := &ContextPacket{}
 
 	// Fetch user
@@ -59,6 +61,16 @@ func (cb *ContextBuilder) Build(ctx context.Context, uid string, coachID string,
 		coachSpec = cb.getDefaultCoachSpec()
 	}
 	packet.CoachSpec = coachSpec
+
+	// CRITICAL: Fetch conversation history for this session
+	history, err := cb.getConversationHistory(ctx, sessionID)
+	if err != nil {
+		// Log error but continue with empty history
+		fmt.Printf("Warning: Failed to fetch conversation history: %v\n", err)
+		packet.ConversationHistory = []models.Message{}
+	} else {
+		packet.ConversationHistory = history
+	}
 
 	// Fetch context based on route needs
 	for _, key := range route.ContextKeys {
@@ -126,6 +138,31 @@ func (cb *ContextBuilder) getLastSessionSummary(ctx context.Context, uid string)
 	return "", nil
 }
 
+// getConversationHistory fetches all messages in a session
+func (cb *ContextBuilder) getConversationHistory(ctx context.Context, sessionID string) ([]models.Message, error) {
+	iter := cb.fs.DB.Collection("sessions").Doc(sessionID).
+		Collection("messages").
+		OrderBy("created_at", firestore.Asc).
+		Documents(ctx)
+	defer iter.Stop()
+
+	var messages []models.Message
+	for {
+		doc, err := iter.Next()
+		if err != nil {
+			break
+		}
+
+		var msg models.Message
+		if err := doc.DataTo(&msg); err != nil {
+			continue
+		}
+		messages = append(messages, msg)
+	}
+
+	return messages, nil
+}
+
 // getDefaultCoachSpec returns a default coach specification
 func (cb *ContextBuilder) getDefaultCoachSpec() *models.CoachSpec {
 	return &models.CoachSpec{
@@ -141,7 +178,7 @@ func (cb *ContextBuilder) getDefaultCoachSpec() *models.CoachSpec {
 			Formatting: models.Formatting{
 				MaxBullets:               7,
 				MaxSentencesPerParagraph: 2,
-				AlwaysEndWith:            []string{"one_question", "one_next_action"},
+				AlwaysEndWith:            []string{},
 				UseEmoji:                 "sparingly",
 				AllowedMarkdown:          []string{"bullet_list", "numbered_list", "bold"},
 			},
