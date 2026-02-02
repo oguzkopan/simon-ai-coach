@@ -36,7 +36,7 @@ final class ChatViewModel: ObservableObject {
     
     // Session details for tool execution context
     private var sessionUID: String?
-    private var sessionCoachID: String?
+    var sessionCoachID: String? // Made public for analytics
     
     init(sessionID: String, coachName: String, apiClient: SimonAPI, toolExecutor: ToolExecutor? = nil, initialPrompt: String? = nil, isNewSession: Bool = false) {
         print("🟢 ChatViewModel init - sessionID: \(sessionID), coachName: \(coachName), isNewSession: \(isNewSession)")
@@ -213,6 +213,12 @@ final class ChatViewModel: ObservableObject {
         
         let userText = composerText
         composerText = ""
+        
+        // Log analytics
+        AnalyticsManager.shared.logMessageSent(
+            coachID: sessionCoachID ?? "unknown",
+            messageLength: userText.count
+        )
         
         // Add user message immediately
         let userMessage = Message(

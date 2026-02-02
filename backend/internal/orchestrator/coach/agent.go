@@ -267,6 +267,17 @@ func (ca *CoachAgent) buildSystemPrompt(
 ) string {
 	var prompt strings.Builder
 
+	// CRITICAL: Current date/time context
+	now := time.Now()
+	prompt.WriteString(fmt.Sprintf("CURRENT DATE AND TIME: %s (UTC)\n", now.UTC().Format(time.RFC3339)))
+	prompt.WriteString(fmt.Sprintf("Local format: %s\n", now.Format("Monday, January 2, 2006 at 3:04 PM MST")))
+	prompt.WriteString(fmt.Sprintf("Day of week: %s\n\n", now.Format("Monday")))
+	prompt.WriteString("IMPORTANT: When creating calendar events, notifications, or reminders:\n")
+	prompt.WriteString("- Use the CURRENT DATE AND TIME above as your reference\n")
+	prompt.WriteString("- Calculate future dates/times relative to this current time\n")
+	prompt.WriteString("- Always use ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ) for all date/time fields\n")
+	prompt.WriteString("- Example: If user says 'tomorrow at 9am' and today is 2026-02-02, use '2026-02-03T09:00:00Z'\n\n")
+
 	// Identity
 	prompt.WriteString(fmt.Sprintf("You are %s, a %s coach.\n\n",
 		spec.Identity.Name,

@@ -90,18 +90,17 @@ final class EventsViewModel: ObservableObject {
     
     // MARK: - Data Loading
     
-    /// Load all data for the current tab
+    /// Load all data for all tabs at once
     func loadData() async {
         await loadCoaches()
         
-        switch selectedTab {
-        case .calendar:
-            await loadCalendarEvents()
-        case .reminders:
-            await loadReminders()
-        case .notifications:
-            await loadScheduledNotifications()
-        }
+        // Load all data in parallel
+        async let calendarTask: Void = loadCalendarEvents()
+        async let remindersTask: Void = loadReminders()
+        async let notificationsTask: Void = loadScheduledNotifications()
+        
+        // Wait for all to complete
+        _ = await (calendarTask, remindersTask, notificationsTask)
     }
     
     /// Refresh all data (for pull-to-refresh)
@@ -116,7 +115,7 @@ final class EventsViewModel: ObservableObject {
         reminders = []
         notifications = []
         
-        // Reload
+        // Reload all data
         await loadData()
     }
     
@@ -126,21 +125,39 @@ final class EventsViewModel: ObservableObject {
         loadCalendarTask?.cancel()
         
         guard !isLoadingCalendar else { return }
+        guard let uid = authManager.currentUser?.uid else {
+            print("⚠️ No user ID available for loading calendar events")
+            return
+        }
         
         isLoadingCalendar = true
         errorMessage = nil
         
         loadCalendarTask = Task {
             do {
-                let events = try await apiClient.getCalendarEvents(
+                // Debug logging
+                print("🔍 Loading calendar events...")
+                print("🔍 UID: \(uid)")
+                print("🔍 Coach filter: \(selectedCoachID ?? "none")")
+                print("🔍 Status filter: \(selectedStatus ?? "none")")
+                
+                // Use EventPersistenceService directly (same as MomentView)
+                let events = try await persistenceService.listCalendarEvents(
+                    uid: uid,
                     coachID: selectedCoachID,
                     status: selectedStatus,
-                    limit: pageSize,
-                    offset: calendarOffset
+                    limit: pageSize
                 )
                 
                 // Check if task was cancelled
                 guard !Task.isCancelled else { return }
+                
+                print("✅ Loaded \(events.count) calendar events from Firestore")
+                if events.isEmpty {
+                    print("⚠️ No calendar events found in Firestore")
+                } else {
+                    print("📋 First event: \(events[0].title)")
+                }
                 
                 if calendarOffset == 0 {
                     calendarEvents = events
@@ -151,6 +168,7 @@ final class EventsViewModel: ObservableObject {
                 calendarOffset += events.count
             } catch {
                 guard !Task.isCancelled else { return }
+                print("❌ Failed to load calendar events: \(error)")
                 handleError(error, context: "loading calendar events")
             }
             
@@ -166,21 +184,30 @@ final class EventsViewModel: ObservableObject {
         loadRemindersTask?.cancel()
         
         guard !isLoadingReminders else { return }
+        guard let uid = authManager.currentUser?.uid else {
+            print("⚠️ No user ID available for loading reminders")
+            return
+        }
         
         isLoadingReminders = true
         errorMessage = nil
         
         loadRemindersTask = Task {
             do {
-                let items = try await apiClient.getReminders(
+                print("🔍 Loading reminders for UID: \(uid)")
+                
+                // Use EventPersistenceService directly
+                let items = try await persistenceService.listReminders(
+                    uid: uid,
                     coachID: selectedCoachID,
-                    status: selectedStatus,
-                    limit: pageSize,
-                    offset: remindersOffset
+                    status: selectedStatus ?? "pending",
+                    limit: pageSize
                 )
                 
                 // Check if task was cancelled
                 guard !Task.isCancelled else { return }
+                
+                print("✅ Loaded \(items.count) reminders from Firestore")
                 
                 if remindersOffset == 0 {
                     reminders = items
@@ -191,6 +218,7 @@ final class EventsViewModel: ObservableObject {
                 remindersOffset += items.count
             } catch {
                 guard !Task.isCancelled else { return }
+                print("❌ Failed to load reminders: \(error)")
                 handleError(error, context: "loading reminders")
             }
             
@@ -206,21 +234,30 @@ final class EventsViewModel: ObservableObject {
         loadNotificationsTask?.cancel()
         
         guard !isLoadingNotifications else { return }
+        guard let uid = authManager.currentUser?.uid else {
+            print("⚠️ No user ID available for loading notifications")
+            return
+        }
         
         isLoadingNotifications = true
         errorMessage = nil
         
         loadNotificationsTask = Task {
             do {
-                let items = try await apiClient.getScheduledNotifications(
+                print("🔍 Loading notifications for UID: \(uid)")
+                
+                // Use EventPersistenceService directly
+                let items = try await persistenceService.listScheduledNotifications(
+                    uid: uid,
                     coachID: selectedCoachID,
-                    status: selectedStatus,
-                    limit: pageSize,
-                    offset: notificationsOffset
+                    status: selectedStatus ?? "scheduled",
+                    limit: pageSize
                 )
                 
                 // Check if task was cancelled
                 guard !Task.isCancelled else { return }
+                
+                print("✅ Loaded \(items.count) notifications from Firestore")
                 
                 if notificationsOffset == 0 {
                     notifications = items
@@ -231,6 +268,7 @@ final class EventsViewModel: ObservableObject {
                 notificationsOffset += items.count
             } catch {
                 guard !Task.isCancelled else { return }
+                print("❌ Failed to load notifications: \(error)")
                 handleError(error, context: "loading notifications")
             }
             
@@ -425,25 +463,6 @@ final class EventsViewModel: ObservableObject {
         }
     }
     
-    // MARK: - Tab Selection
-    
-    /// Switch to a different tab
-    func selectTab(_ tab: EventTab) async {
-        selectedTab = tab
-        
-        // Load data for the new tab if not already loaded
-        switch tab {
-        case .calendar where calendarEvents.isEmpty:
-            await loadCalendarEvents()
-        case .reminders where reminders.isEmpty:
-            await loadReminders()
-        case .notifications where notifications.isEmpty:
-            await loadScheduledNotifications()
-        default:
-            break
-        }
-    }
-    
     // MARK: - Pagination
     
     /// Load more items for the current tab
@@ -490,6 +509,46 @@ final class EventsViewModel: ObservableObject {
         showError = true
     }
     
+    // MARK: - Actions
+    
+    /// Complete a reminder
+    func completeReminder(_ reminderID: String) async {
+        guard let uid = authManager.currentUser?.uid else { return }
+        
+        do {
+            // Use EventPersistenceService directly
+            try await persistenceService.completeReminder(id: reminderID, uid: uid)
+            
+            // Update local state - remove from list or update status
+            if let index = reminders.firstIndex(where: { $0.id == reminderID }) {
+                reminders.remove(at: index)
+            }
+            
+            showToastMessage("Reminder completed", type: .success)
+        } catch {
+            handleError(error, context: "completing reminder")
+        }
+    }
+    
+    /// Cancel a notification
+    func cancelNotification(_ notificationID: String) async {
+        guard let uid = authManager.currentUser?.uid else { return }
+        
+        do {
+            // Use EventPersistenceService directly
+            try await persistenceService.cancelNotification(id: notificationID, uid: uid)
+            
+            // Update local state - remove from list
+            if let index = notifications.firstIndex(where: { $0.id == notificationID }) {
+                notifications.remove(at: index)
+            }
+            
+            showToastMessage("Notification cancelled", type: .success)
+        } catch {
+            handleError(error, context: "cancelling notification")
+        }
+    }
+    
     // MARK: - Computed Properties
     
     var isLoading: Bool {
@@ -522,5 +581,15 @@ enum EventTab: String, CaseIterable, Hashable {
     case calendar = "Calendar"
     case reminders = "Reminders"
     case notifications = "Notifications"
+    
+    var icon: String {
+        switch self {
+        case .calendar:
+            return "calendar"
+        case .reminders:
+            return "checkmark.circle"
+        case .notifications:
+            return "bell"
+        }
+    }
 }
-

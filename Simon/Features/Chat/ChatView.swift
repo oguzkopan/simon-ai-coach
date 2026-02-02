@@ -249,6 +249,11 @@ struct ChatView: View {
         .toolbar(.hidden, for: .tabBar)
         .onAppear {
             print("🟢 ChatView appeared - sessionID: \(viewModel.sessionID)")
+            AnalyticsManager.shared.logScreenView("chat", screenClass: "ChatView")
+            AnalyticsManager.shared.logSessionStarted(
+                coachID: viewModel.sessionCoachID ?? "unknown",
+                sessionID: viewModel.sessionID
+            )
         }
         .task {
             print("🟢 ChatView .task triggered - sessionID: \(viewModel.sessionID)")

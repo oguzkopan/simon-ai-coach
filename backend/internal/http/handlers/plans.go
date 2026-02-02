@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 
@@ -16,17 +18,32 @@ func ListPlans(fs *firestore.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		uid := middleware.GetUID(c)
 
+		// Parse query parameters
+		limit := 10 // default
+		if limitStr := c.Query("limit"); limitStr != "" {
+			if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
+				limit = parsedLimit
+			}
+		}
+
+		// Note: status parameter is ignored for now since we only support "active" status
+		// In the future, we could add support for "completed", "archived", etc.
+
+		fmt.Printf("📋 ListPlans: uid=%s, limit=%d\n", uid, limit)
+
 		planService := tools.NewPlanService(fs.DB)
 		
 		resp, err := planService.ListActive(c.Request.Context(), tools.PlanListRequest{
 			UID:   uid,
-			Limit: 10,
+			Limit: limit,
 		})
 		if err != nil {
+			fmt.Printf("❌ ListPlans error: %v\n", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 
+		fmt.Printf("✅ ListPlans: returning %d plans\n", len(resp.Plans))
 		c.JSON(http.StatusOK, resp.Plans)
 	}
 }

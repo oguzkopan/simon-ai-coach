@@ -33,6 +33,7 @@ final class SignInViewModel: ObservableObject {
             do {
                 try await authManager.signInWithApple()
                 // Success - auth state will update automatically
+                AnalyticsManager.shared.logSignInMethod("apple")
                 isLoading = false
             } catch {
                 isLoading = false
@@ -53,6 +54,7 @@ final class SignInViewModel: ObservableObject {
                 print("📱 SignInViewModel: Calling authManager.signInWithGoogle()")
                 try await authManager.signInWithGoogle()
                 print("📱 SignInViewModel: Google Sign-In completed successfully")
+                AnalyticsManager.shared.logSignInMethod("google")
                 isLoading = false
             } catch {
                 print("📱 SignInViewModel: Google Sign-In failed with error: \(error)")

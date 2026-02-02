@@ -31,16 +31,23 @@ struct AttachedFile: Identifiable {
     }
 }
 
+enum InputMode {
+    case text
+    case voice
+}
+
 @MainActor
 final class MomentViewModel: ObservableObject {
     @Published var freeformInput: String = ""
     @Published var selectedTemplate: MomentTemplate?
     @Published var isLoading: Bool = false
+    @Published var isLoadingEvents: Bool = false
     @Published var errorMessage: String?
     @Published var showPaywall: Bool = false
     @Published var navigateToChat: Bool = false
     @Published var createdSessionId: String?
     @Published var createdCoachName: String?
+    @Published var createdInitialPrompt: String? // Store the first message from backend
     @Published var remainingMoments: Int = 3
     @Published var isRecording: Bool = false
     @Published var routines: [System] = []
@@ -49,11 +56,42 @@ final class MomentViewModel: ObservableObject {
     @Published var showDocumentPicker: Bool = false
     @Published var attachedFiles: [AttachedFile] = []
     @Published var selectedPhotoItem: PhotosPickerItem?
+    @Published var inputMode: InputMode = .text // Toggle between text and voice
+    @Published var recordingDuration: TimeInterval = 0
+    @Published var audioLevels: [CGFloat] = Array(repeating: 0.3, count: 40) // For waveform visualization
     
-    private let apiClient: SimonAPI
+    // Event records for display
+    @Published var upcomingEvents: [CalendarEventRecord] = []
+    @Published var pendingReminders: [ReminderRecord] = []
+    @Published var scheduledNotifications: [ScheduledNotificationRecord] = []
+    
+    // Progress documents (plans, check-ins)
+    @Published var activePlans: [Plan] = []
+    @Published var recentCheckins: [Checkin] = []
+    @Published var isLoadingProgress: Bool = false
+    
+    // Track if initial load has been done
+    private var hasLoadedEvents = false
+    private var hasLoadedProgress = false
+    
+    // Selected items for detail view
+    @Published var selectedEvent: CalendarEventRecord?
+    @Published var selectedReminder: ReminderRecord?
+    @Published var selectedNotification: ScheduledNotificationRecord?
+    
+    // Sheet states
+    @Published var showEventDetail = false
+    @Published var showReminderDetail = false
+    @Published var showNotificationDetail = false
+    
+    let apiClient: SimonAPI // Made public for EventsView access
     private let purchases: PurchasesService
+    private let eventPersistence: EventPersistenceService
+    private let authManager: AuthenticationManager
     private var audioRecorder: AVAudioRecorder?
     private var audioSession: AVAudioSession?
+    private var recordingTimer: Timer?
+    private var levelTimer: Timer?
     
     var isPro: Bool {
         purchases.isPro
@@ -114,6 +152,8 @@ final class MomentViewModel: ObservableObject {
     init(apiClient: SimonAPI, purchases: PurchasesService) {
         self.apiClient = apiClient
         self.purchases = purchases
+        self.eventPersistence = .shared
+        self.authManager = .shared
     }
     
     func loadRemainingMoments() async {
@@ -135,6 +175,131 @@ final class MomentViewModel: ObservableObject {
             routines = try await apiClient.listSystems()
         } catch {
             print("Failed to load routines: \(error)")
+        }
+    }
+    
+    func loadUpcomingEvents() async {
+        guard let uid = authManager.currentUser?.uid else { return }
+        
+        // Only show loading skeleton on first load
+        if !hasLoadedEvents {
+            isLoadingEvents = true
+        }
+        
+        do {
+            // Load upcoming calendar events (next 7 days)
+            let allEvents = try await eventPersistence.listCalendarEvents(uid: uid, limit: 20)
+            upcomingEvents = allEvents.filter { $0.isUpcoming }.prefix(5).map { $0 }
+            
+            // Load pending reminders
+            let allReminders = try await eventPersistence.listReminders(uid: uid, status: "pending", limit: 10)
+            pendingReminders = Array(allReminders.prefix(5))
+            
+            // Load scheduled notifications
+            let allNotifications = try await eventPersistence.listScheduledNotifications(uid: uid, status: "scheduled", limit: 10)
+            scheduledNotifications = Array(allNotifications.prefix(5))
+            
+            print("✅ Loaded moment events: calendar=\(upcomingEvents.count), reminders=\(pendingReminders.count), notifications=\(scheduledNotifications.count)")
+            
+            hasLoadedEvents = true
+            isLoadingEvents = false
+        } catch {
+            print("❌ Failed to load moment events: \(error)")
+            hasLoadedEvents = true
+            isLoadingEvents = false
+        }
+    }
+    
+    func loadProgressDocuments() async {
+        guard let uid = authManager.currentUser?.uid else {
+            print("❌ No authenticated user for progress documents")
+            return
+        }
+        
+        // Only show loading skeleton on first load
+        if !hasLoadedProgress {
+            isLoadingProgress = true
+        }
+        
+        print("🔍 Loading progress documents for UID: \(uid)")
+        
+        do {
+            // Load active plans
+            let plans = try await apiClient.listPlans(status: "active", limit: 3)
+            activePlans = plans
+            
+            // TODO: Add check-ins API endpoint
+            // For now, check-ins will be empty
+            recentCheckins = []
+            
+            print("✅ Loaded progress: plans=\(activePlans.count), checkins=\(recentCheckins.count)")
+            if activePlans.isEmpty {
+                print("⚠️ No active plans found - check backend filtering")
+            } else {
+                for plan in activePlans {
+                    print("  📋 Plan: \(plan.title) (status: \(plan.status), uid: \(plan.uid))")
+                }
+            }
+            
+            hasLoadedProgress = true
+            isLoadingProgress = false
+        } catch {
+            print("❌ Failed to load progress documents: \(error)")
+            hasLoadedProgress = true
+            isLoadingProgress = false
+        }
+    }
+    
+    // MARK: - Event Actions
+    
+    func deleteEvent(_ event: CalendarEventRecord) {
+        Task {
+            do {
+                // Delete from Firestore
+                try await eventPersistence.deleteCalendarEvent(eventID: event.id)
+                
+                // Update local state
+                upcomingEvents.removeAll { $0.id == event.id }
+                
+                print("✅ Deleted calendar event: \(event.id)")
+            } catch {
+                print("❌ Failed to delete event: \(error)")
+                errorMessage = "Failed to delete event"
+            }
+        }
+    }
+    
+    func deleteReminder(_ reminder: ReminderRecord) {
+        Task {
+            do {
+                // Delete from Firestore
+                try await eventPersistence.deleteReminder(reminderID: reminder.id)
+                
+                // Update local state
+                pendingReminders.removeAll { $0.id == reminder.id }
+                
+                print("✅ Deleted reminder: \(reminder.id)")
+            } catch {
+                print("❌ Failed to delete reminder: \(error)")
+                errorMessage = "Failed to delete reminder"
+            }
+        }
+    }
+    
+    func deleteNotification(_ notification: ScheduledNotificationRecord) {
+        Task {
+            do {
+                // Cancel notification via API
+                _ = try await apiClient.cancelNotification(id: notification.id)
+                
+                // Update local state
+                scheduledNotifications.removeAll { $0.id == notification.id }
+                
+                print("✅ Cancelled notification: \(notification.id)")
+            } catch {
+                print("❌ Failed to cancel notification: \(error)")
+                errorMessage = "Failed to cancel notification"
+            }
         }
     }
     
@@ -160,11 +325,7 @@ final class MomentViewModel: ObservableObject {
     }
     
     private func startMoment(prompt: String) async {
-        // Check Pro status or remaining moments
-        if !isPro && remainingMoments <= 0 {
-            showPaywall = true
-            return
-        }
+        // No paywall restrictions - everyone can use moments
         
         isLoading = true
         errorMessage = nil
@@ -173,27 +334,18 @@ final class MomentViewModel: ObservableObject {
             // Call backend to start moment
             let response = try await apiClient.startMoment(prompt: prompt)
             
-            // Increment moment count if not Pro
-            if !isPro {
-                incrementMomentCount()
-                await loadRemainingMoments()
-            }
-            
             // Navigate to chat with created session
+            // Note: The backend has already processed the user's prompt and created
+            // the session with messages, so we don't need to pass initialPrompt
             createdSessionId = response.sessionId
             createdCoachName = response.coachName
+            createdInitialPrompt = nil // Don't auto-send - messages already exist
             navigateToChat = true
             
             // Reset form
             freeformInput = ""
             selectedTemplate = nil
             
-        } catch let error as APIError {
-            if case .proRequired = error {
-                showPaywall = true
-            } else {
-                errorMessage = error.localizedDescription
-            }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -208,25 +360,30 @@ final class MomentViewModel: ObservableObject {
         UserDefaults.standard.set(count + 1, forKey: key)
     }
     
-    func createChatViewModel(sessionId: String, coachName: String) -> ChatViewModel {
+    func createChatViewModel(sessionId: String, coachName: String, initialPrompt: String?) -> ChatViewModel {
         return ChatViewModel(
             sessionID: sessionId,
             coachName: coachName,
-            apiClient: apiClient
+            apiClient: apiClient,
+            initialPrompt: initialPrompt,
+            isNewSession: false // Session already has messages from backend
         )
     }
     
     // MARK: - Voice Input
     
-    func toggleVoiceInput() {
-        if isRecording {
+    func toggleInputMode() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+            inputMode = inputMode == .text ? .voice : .text
+        }
+        
+        // Stop recording if switching away from voice mode
+        if inputMode == .text && isRecording {
             stopVoiceRecording()
-        } else {
-            startVoiceRecording()
         }
     }
     
-    private func startVoiceRecording() {
+    func startVoiceRecording() {
         Task {
             do {
                 // Request microphone permission
@@ -254,9 +411,14 @@ final class MomentViewModel: ObservableObject {
                 ]
                 
                 audioRecorder = try AVAudioRecorder(url: audioFilename, settings: settings)
+                audioRecorder?.isMeteringEnabled = true
                 audioRecorder?.record()
                 
                 isRecording = true
+                recordingDuration = 0
+                
+                // Start timers for duration and audio levels
+                startRecordingTimers()
                 
             } catch {
                 errorMessage = "Failed to start recording: \(error.localizedDescription)"
@@ -265,7 +427,44 @@ final class MomentViewModel: ObservableObject {
         }
     }
     
-    private func stopVoiceRecording() {
+    private func startRecordingTimers() {
+        // Duration timer
+        recordingTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            Task { @MainActor in
+                self.recordingDuration += 0.1
+            }
+        }
+        
+        // Audio level timer for waveform
+        levelTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            Task { @MainActor in
+                self.updateAudioLevels()
+            }
+        }
+    }
+    
+    private func updateAudioLevels() {
+        guard let recorder = audioRecorder, recorder.isRecording else { return }
+        
+        recorder.updateMeters()
+        let power = recorder.averagePower(forChannel: 0)
+        
+        // Convert power (-160 to 0) to a normalized value (0.1 to 1.0)
+        let normalizedPower = max(0.1, min(1.0, CGFloat((power + 160) / 160)))
+        
+        // Shift array and add new value
+        audioLevels.removeFirst()
+        audioLevels.append(normalizedPower)
+    }
+    
+    func stopVoiceRecording() {
+        recordingTimer?.invalidate()
+        levelTimer?.invalidate()
+        recordingTimer = nil
+        levelTimer = nil
+        
         audioRecorder?.stop()
         isRecording = false
         
@@ -276,6 +475,31 @@ final class MomentViewModel: ObservableObject {
         // Transcribe audio
         Task {
             await transcribeAudio(url: recordingURL)
+        }
+    }
+    
+    func cancelVoiceRecording() {
+        recordingTimer?.invalidate()
+        levelTimer?.invalidate()
+        recordingTimer = nil
+        levelTimer = nil
+        
+        audioRecorder?.stop()
+        
+        if let recordingURL = audioRecorder?.url {
+            try? FileManager.default.removeItem(at: recordingURL)
+        }
+        
+        isRecording = false
+        recordingDuration = 0
+        audioLevels = Array(repeating: 0.3, count: 40)
+    }
+    
+    func toggleVoiceInput() {
+        if isRecording {
+            stopVoiceRecording()
+        } else {
+            startVoiceRecording()
         }
     }
     

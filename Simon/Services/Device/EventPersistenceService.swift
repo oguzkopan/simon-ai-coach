@@ -402,6 +402,41 @@ class EventPersistenceService: ObservableObject {
             throw error
         }
     }
+    
+    // MARK: - Delete Operations
+    
+    /// Delete a calendar event from Firestore
+    func deleteCalendarEvent(eventID: String) async throws {
+        try await withRetry(operation: "deleteCalendarEvent") {
+            try await self.db.collection(self.calendarEventsCollection)
+                .document(eventID)
+                .delete()
+        }
+        
+        logger.info("✅ Deleted calendar event: \(eventID)")
+    }
+    
+    /// Delete a reminder from Firestore
+    func deleteReminder(reminderID: String) async throws {
+        try await withRetry(operation: "deleteReminder") {
+            try await self.db.collection(self.remindersCollection)
+                .document(reminderID)
+                .delete()
+        }
+        
+        logger.info("✅ Deleted reminder: \(reminderID)")
+    }
+    
+    /// Delete a scheduled notification from Firestore
+    func deleteScheduledNotification(notificationID: String) async throws {
+        try await withRetry(operation: "deleteScheduledNotification") {
+            try await self.db.collection(self.notificationsCollection)
+                .document(notificationID)
+                .delete()
+        }
+        
+        logger.info("✅ Deleted scheduled notification: \(notificationID)")
+    }
 }
 
 // MARK: - Errors

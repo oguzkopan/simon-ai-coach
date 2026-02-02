@@ -93,6 +93,9 @@ struct HomeView: View {
                 await viewModel.loadCoaches()
             }
         }
+        .onAppear {
+            AnalyticsManager.shared.logScreenView("home", screenClass: "HomeView")
+        }
     }
 }
 

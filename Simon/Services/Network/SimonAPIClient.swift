@@ -78,8 +78,10 @@ final class SimonAPIClient: SimonAPI {
         do {
             let token = try await authManager.idToken()
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            print("🔐 Added auth token to request")
         } catch {
             // User not signed in - continue without auth header for public endpoints
+            print("⚠️ No auth token available: \(error)")
         }
     }
     
@@ -539,20 +541,31 @@ final class SimonAPIClient: SimonAPI {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         try await addAuthHeader(to: &request)
         
+        print("🔍 Fetching plans from: \(components.url!.absoluteString)")
+        
         let (data, response) = try await session.data(for: request)
         
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.invalidResponse
         }
         
+        print("📡 Plans API response: \(httpResponse.statusCode)")
+        
         guard (200...299).contains(httpResponse.statusCode) else {
+            if let errorBody = String(data: data, encoding: .utf8) {
+                print("❌ Plans API error body: \(errorBody)")
+            }
             throw APIError.httpError(httpResponse.statusCode)
         }
         
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode([Plan].self, from: data)
+        let plans = try decoder.decode([Plan].self, from: data)
+        
+        print("✅ Decoded \(plans.count) plans")
+        
+        return plans
     }
     
     func updatePlan(planId: String, updates: [String: Any]) async throws -> Plan {

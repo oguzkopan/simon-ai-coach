@@ -62,6 +62,9 @@ final class ToolExecutor: ObservableObject {
         sessionID: String?,
         toolRunID: String
     ) async throws -> [String: Any] {
+        // Log analytics
+        AnalyticsManager.shared.logToolExecuted(toolName: toolID, coachID: coachID)
+        
         switch toolID {
         case "local_notification_schedule":
             return try await executeNotification(

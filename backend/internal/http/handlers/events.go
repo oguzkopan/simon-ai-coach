@@ -61,6 +61,13 @@ func (h *EventsHandler) ListCalendarEvents(c *gin.Context) {
 		"limit":    limit,
 		"offset":   offset,
 	})
+	
+	// Debug: Check if UID is empty
+	if uid == "" {
+		h.log.Error(ctx, "UID is empty - auth middleware may have failed", nil, nil)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
 
 	// Build query - filter by uid and order by start_iso ascending
 	query := h.fs.DB.Collection("calendar_events").

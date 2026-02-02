@@ -216,6 +216,8 @@ func (s *PlanService) ListActive(ctx context.Context, req PlanListRequest) (*Pla
 		plans = append(plans, plan)
 	}
 
+	fmt.Printf("📋 ListActive: uid=%s, limit=%d, found=%d plans\n", req.UID, limit, len(plans))
+
 	return &PlanListResponse{
 		Plans: plans,
 	}, nil

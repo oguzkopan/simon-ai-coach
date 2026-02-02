@@ -12,8 +12,16 @@ final class LibraryViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var selectedSystem: System?
     
+    // Progress documents (plans, check-ins)
+    @Published var activePlans: [Plan] = []
+    @Published var recentCheckins: [Checkin] = []
+    @Published var isLoadingProgress: Bool = false
+    
     private let apiClient: SimonAPI
     private var loadTask: Task<Void, Never>?
+    private var hasLoadedData = false // Track if initial load is complete
+    private var hasLoadedProgress = false
+    
     var onNavigateToChat: ((String, String) -> Void)? // (sessionId, coachName)
     var onNavigateToMoment: (() -> Void)?
     var onNavigateToSettings: (() -> Void)?
@@ -24,6 +32,12 @@ final class LibraryViewModel: ObservableObject {
     }
     
     func loadData() async {
+        // Skip if already loaded
+        guard !hasLoadedData else {
+            print("📚 Library data already loaded, skipping...")
+            return
+        }
+        
         // Cancel any existing load task
         loadTask?.cancel()
         
@@ -37,11 +51,13 @@ final class LibraryViewModel: ObservableObject {
             await withTaskGroup(of: Void.self) { group in
                 group.addTask { await self.loadRecentSessions() }
                 group.addTask { await self.loadPinnedSystems() }
+                group.addTask { await self.loadProgressDocuments() }
             }
             
             // Organize sessions by time
             if !Task.isCancelled {
                 organizeSessions()
+                hasLoadedData = true
             }
             
             isLoading = false
@@ -51,6 +67,9 @@ final class LibraryViewModel: ObservableObject {
     }
     
     func refresh() async {
+        // Force reload by resetting the flag
+        hasLoadedData = false
+        hasLoadedProgress = false
         await loadData()
     }
     
@@ -90,6 +109,33 @@ final class LibraryViewModel: ObservableObject {
         // Archive: sessions older than 7 days
         archivedSessions = recentSessions
             .filter { $0.updatedAt < weekAgo }
+    }
+    
+    private func loadProgressDocuments() async {
+        guard !hasLoadedProgress else {
+            print("📊 Progress data already loaded, skipping...")
+            return
+        }
+        
+        isLoadingProgress = true
+        
+        do {
+            // Load active plans
+            let plans = try await apiClient.listPlans(status: "active", limit: 5)
+            activePlans = plans
+            
+            // TODO: Add check-ins API endpoint
+            recentCheckins = []
+            
+            print("✅ Loaded progress: plans=\(activePlans.count), checkins=\(recentCheckins.count)")
+            
+            hasLoadedProgress = true
+            isLoadingProgress = false
+        } catch {
+            print("❌ Failed to load progress documents: \(error)")
+            hasLoadedProgress = true
+            isLoadingProgress = false
+        }
     }
     
     func continueSession(_ session: Session) {

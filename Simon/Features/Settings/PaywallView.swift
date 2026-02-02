@@ -83,6 +83,9 @@ struct PaywallView: View {
                     }
                 }
             }
+            .onAppear {
+                AnalyticsManager.shared.logPaywallViewed()
+            }
         }
     }
 }

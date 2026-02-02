@@ -57,6 +57,12 @@ struct LibraryView: View {
                     }
                     // Content
                     else {
+                        // My Progress Section (at the top)
+                        if !vm.activePlans.isEmpty || !vm.recentCheckins.isEmpty || vm.isLoadingProgress {
+                            myProgressSection
+                                .padding(.horizontal, 20)
+                        }
+                        
                         // Latest Moment Card (Featured)
                         if let latestSession = vm.recentSessions.first {
                             LatestMomentCard(session: latestSession) {
@@ -323,6 +329,313 @@ struct SessionRowCard: View {
     
     private var sessionType: String {
         session.mode.capitalized
+    }
+}
+
+// MARK: - My Progress Section
+
+extension LibraryView {
+    private var myProgressSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("My Progress")
+                .font(theme.font(22, weight: .bold))
+            
+            if vm.isLoadingProgress {
+                // Loading skeleton
+                VStack(spacing: 12) {
+                    ForEach(0..<2, id: \.self) { _ in
+                        ProgressCardSkeletonLibrary()
+                    }
+                }
+            } else {
+                VStack(spacing: 12) {
+                    // Active Plans
+                    ForEach(vm.activePlans) { plan in
+                        NavigationLink(destination: PlanView()) {
+                            BeautifulProgressPlanCard(plan: plan)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    
+                    // Recent Check-ins
+                    ForEach(vm.recentCheckins) { checkin in
+                        BeautifulProgressCheckinCard(checkin: checkin)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Beautiful Progress Plan Card
+
+struct BeautifulProgressPlanCard: View {
+    let plan: Plan
+    @EnvironmentObject private var theme: ThemeStore
+    
+    var completedMilestones: Int {
+        plan.milestones.filter { $0.status == .completed }.count
+    }
+    
+    var pendingActions: Int {
+        plan.nextActions.filter { $0.status == .pending }.count
+    }
+    
+    var completionPercentage: Int {
+        guard !plan.milestones.isEmpty else { return 0 }
+        return Int((Double(completedMilestones) / Double(plan.milestones.count)) * 100)
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Header
+            HStack(alignment: .top, spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color.blue.opacity(0.1))
+                        .frame(width: 44, height: 44)
+                    
+                    Image(systemName: "target")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(.blue)
+                }
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(plan.title)
+                        .font(theme.font(17, weight: .semibold))
+                        .foregroundColor(.primary)
+                        .lineLimit(2)
+                    
+                    Text("Last active \(plan.updatedAt.timeAgoShort())")
+                        .font(theme.font(13))
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+                
+                // Completion Badge
+                Text("\(completionPercentage)%")
+                    .font(theme.font(15, weight: .bold))
+                    .foregroundColor(.blue)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.blue.opacity(0.1))
+                    .cornerRadius(8)
+            }
+            
+            // Checklist Preview (first 3 milestones)
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(plan.milestones.prefix(3)) { milestone in
+                    HStack(spacing: 10) {
+                        Image(systemName: milestone.status == .completed ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 18))
+                            .foregroundColor(milestone.status == .completed ? .green : Color(.systemGray4))
+                        
+                        Text(milestone.title)
+                            .font(theme.font(15))
+                            .foregroundColor(milestone.status == .completed ? .secondary : .primary)
+                            .strikethrough(milestone.status == .completed)
+                            .lineLimit(1)
+                        
+                        Spacer()
+                    }
+                }
+            }
+            
+            Divider()
+            
+            // Footer
+            HStack {
+                Text("\(plan.milestones.count - completedMilestones) tasks remaining")
+                    .font(theme.font(13))
+                    .foregroundColor(.secondary)
+                
+                Spacer()
+                
+                HStack(spacing: 4) {
+                    Text("Resume")
+                        .font(theme.font(14, weight: .medium))
+                        .foregroundColor(theme.accentPrimary)
+                    
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(theme.accentPrimary)
+                }
+            }
+        }
+        .padding(16)
+        .background(Color(.systemBackground))
+        .cornerRadius(16)
+        .shadow(color: Color.black.opacity(0.06), radius: 8, x: 0, y: 2)
+    }
+}
+
+// MARK: - Beautiful Progress Checkin Card
+
+struct BeautifulProgressCheckinCard: View {
+    let checkin: Checkin
+    @EnvironmentObject private var theme: ThemeStore
+    
+    var streakDays: Int {
+        // Mock streak calculation
+        return Int.random(in: 3...15)
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Header
+            HStack(alignment: .top, spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color.orange.opacity(0.1))
+                        .frame(width: 44, height: 44)
+                    
+                    Image(systemName: "book.fill")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(.orange)
+                }
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Daily Journaling")
+                        .font(theme.font(17, weight: .semibold))
+                        .foregroundColor(.primary)
+                    
+                    Text("Current Streak")
+                        .font(theme.font(13))
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+                
+                // Streak Badge
+                HStack(spacing: 4) {
+                    Image(systemName: "flame.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(.orange)
+                    
+                    Text("\(streakDays) Days")
+                        .font(theme.font(15, weight: .bold))
+                        .foregroundColor(.orange)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Color.orange.opacity(0.1))
+                .cornerRadius(8)
+            }
+            
+            // Checklist items
+            VStack(alignment: .leading, spacing: 10) {
+                ProgressChecklistItem(title: "Morning reflection", isCompleted: false)
+                ProgressChecklistItem(title: "Goal setting", isCompleted: false)
+                ProgressChecklistItem(title: "Evening review", isCompleted: false, isDisabled: true)
+            }
+            
+            Divider()
+            
+            // Footer
+            HStack {
+                Text("Start your day")
+                    .font(theme.font(13))
+                    .foregroundColor(.secondary)
+                
+                Spacer()
+                
+                HStack(spacing: 4) {
+                    Text("Open")
+                        .font(theme.font(14, weight: .medium))
+                        .foregroundColor(theme.accentPrimary)
+                    
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(theme.accentPrimary)
+                }
+            }
+        }
+        .padding(16)
+        .background(Color(.systemBackground))
+        .cornerRadius(16)
+        .shadow(color: Color.black.opacity(0.06), radius: 8, x: 0, y: 2)
+    }
+}
+
+// MARK: - Progress Checklist Item
+
+struct ProgressChecklistItem: View {
+    let title: String
+    let isCompleted: Bool
+    var isDisabled: Bool = false
+    
+    @EnvironmentObject private var theme: ThemeStore
+    
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 18))
+                .foregroundColor(isCompleted ? .green : (isDisabled ? Color(.systemGray5) : Color(.systemGray4)))
+            
+            Text(title)
+                .font(theme.font(15))
+                .foregroundColor(isDisabled ? .secondary.opacity(0.5) : (isCompleted ? .secondary : .primary))
+                .strikethrough(isCompleted)
+            
+            Spacer()
+        }
+    }
+}
+
+// MARK: - Progress Card Skeleton (Library)
+
+struct ProgressCardSkeletonLibrary: View {
+    @EnvironmentObject private var theme: ThemeStore
+    @State private var isAnimating = false
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 12) {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color(.systemGray5))
+                    .frame(width: 44, height: 44)
+                
+                VStack(alignment: .leading, spacing: 6) {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color(.systemGray5))
+                        .frame(height: 18)
+                    
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color(.systemGray5))
+                        .frame(width: 100, height: 14)
+                }
+                
+                Spacer()
+                
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(.systemGray5))
+                    .frame(width: 50, height: 28)
+            }
+            
+            VStack(spacing: 10) {
+                ForEach(0..<3, id: \.self) { _ in
+                    HStack(spacing: 10) {
+                        Circle()
+                            .fill(Color(.systemGray5))
+                            .frame(width: 18, height: 18)
+                        
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color(.systemGray5))
+                            .frame(height: 16)
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .background(Color(.systemBackground))
+        .cornerRadius(16)
+        .shadow(color: Color.black.opacity(0.06), radius: 8, x: 0, y: 2)
+        .opacity(isAnimating ? 0.5 : 1.0)
+        .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: isAnimating)
+        .onAppear {
+            isAnimating = true
+        }
     }
 }
 

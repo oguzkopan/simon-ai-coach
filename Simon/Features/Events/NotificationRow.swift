@@ -2,7 +2,7 @@
 //  NotificationRow.swift
 //  Simon
 //
-//  Created for Event Persistence feature
+//  Redesigned notification row
 //
 
 import SwiftUI
@@ -10,161 +10,146 @@ import SwiftUI
 struct NotificationRow: View {
     let notification: ScheduledNotificationRecord
     let onCancel: () -> Void
-    
     @EnvironmentObject private var theme: ThemeStore
-    @State private var showingCancelConfirmation = false
+    @State private var showCancelConfirmation = false
+    @State private var isCancelling = false
     
     var body: some View {
-        SCard {
-            HStack(spacing: ThemeTokens.spacing12) {
-                // Icon
-                ZStack {
-                    RoundedRectangle(cornerRadius: ThemeTokens.radiusSmall)
-                        .fill(iconColor.opacity(0.15))
-                        .frame(width: 44, height: 44)
-                    
-                    Image(systemName: iconName)
-                        .font(.system(size: 20))
-                        .foregroundColor(iconColor)
-                }
+        HStack(spacing: 16) {
+            // Icon
+            ZStack {
+                Circle()
+                    .fill(iconBackgroundColor)
+                    .frame(width: 48, height: 48)
                 
-                // Content
-                VStack(alignment: .leading, spacing: 4) {
-                    // Title
-                    Text(notification.title)
-                        .font(theme.font(16, weight: .semibold))
-                        .foregroundColor(.primary)
-                        .lineLimit(2)
-                    
-                    // Body
-                    Text(notification.body)
-                        .font(theme.font(14))
-                        .foregroundColor(.secondary)
-                        .lineLimit(2)
-                    
+                Image(systemName: iconName)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(iconColor)
+            }
+            
+            // Content
+            VStack(alignment: .leading, spacing: 6) {
+                Text(notification.title)
+                    .font(theme.font(16, weight: .semibold))
+                    .foregroundColor(.primary)
+                    .lineLimit(2)
+                
+                Text(notification.body)
+                    .font(theme.font(14))
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                
+                HStack(spacing: 12) {
                     // Trigger time
                     HStack(spacing: 4) {
                         Image(systemName: "clock")
-                            .font(.system(size: 10))
+                            .font(.system(size: 12))
                         Text(notification.triggerDescription)
                             .font(theme.font(13))
                     }
                     .foregroundColor(.secondary)
                     
-                    // Coach name
-                    HStack(spacing: 4) {
-                        Image(systemName: "person.fill")
-                            .font(.system(size: 10))
-                        Text("Coach")
-                            .font(theme.font(13))
-                    }
-                    .foregroundColor(.secondary)
-                }
-                
-                Spacer()
-                
-                // Status and actions
-                VStack(spacing: 8) {
+                    // Status badge
                     statusBadge
-                    
-                    if notification.isScheduled {
-                        Button(action: {
-                            showingCancelConfirmation = true
-                        }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 20))
-                                .foregroundColor(.red)
-                        }
-                        .buttonStyle(.plain)
+                }
+            }
+            
+            Spacer()
+            
+            // Cancel button (only for scheduled)
+            if notification.isScheduled {
+                Button {
+                    showCancelConfirmation = true
+                } label: {
+                    if isCancelling {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                    } else {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 24))
+                            .foregroundColor(.red.opacity(0.7))
                     }
                 }
-            }
-            .padding(ThemeTokens.spacing12)
-        }
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if notification.isScheduled {
-                Button(role: .destructive, action: {
-                    showingCancelConfirmation = true
-                }) {
-                    Label("Cancel", systemImage: "xmark")
-                }
+                .disabled(isCancelling)
+            } else {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.secondary.opacity(0.5))
             }
         }
+        .padding(16)
+        .background(Color(.systemBackground))
+        .cornerRadius(12)
+        .shadow(color: Color.black.opacity(0.05), radius: 8, x: 0, y: 2)
+        .opacity(notification.isCancelled ? 0.6 : 1.0)
         .confirmationDialog(
             "Cancel Notification",
-            isPresented: $showingCancelConfirmation,
+            isPresented: $showCancelConfirmation,
             titleVisibility: .visible
         ) {
             Button("Cancel Notification", role: .destructive) {
+                isCancelling = true
                 onCancel()
             }
-            Button("Keep Notification", role: .cancel) {}
+            Button("Keep", role: .cancel) {}
         } message: {
-            Text("Cancel the notification '\(notification.title)'? You won't receive this notification.")
-        }
-    }
-    
-    // MARK: - Computed Properties
-    
-    private var iconName: String {
-        switch notification.status {
-        case "scheduled":
-            return "bell.badge"
-        case "delivered":
-            return "bell.fill"
-        case "cancelled":
-            return "bell.slash"
-        default:
-            return "bell"
-        }
-    }
-    
-    private var iconColor: Color {
-        switch notification.status {
-        case "scheduled":
-            return theme.accentPrimary
-        case "delivered":
-            return .green
-        case "cancelled":
-            return .gray
-        default:
-            return .secondary
+            Text("Are you sure you want to cancel this notification?")
         }
     }
     
     private var statusBadge: some View {
-        Text(notification.statusDisplay)
-            .font(theme.font(11, weight: .semibold))
-            .foregroundColor(statusTextColor)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(statusBackgroundColor)
-            .cornerRadius(6)
+        HStack(spacing: 4) {
+            Circle()
+                .fill(statusColor)
+                .frame(width: 6, height: 6)
+            
+            Text(notification.statusDisplay)
+                .font(theme.font(12, weight: .medium))
+                .foregroundColor(statusColor)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(statusColor.opacity(0.1))
+        .cornerRadius(6)
     }
     
-    private var statusTextColor: Color {
-        switch notification.status {
-        case "scheduled":
-            return theme.accentPrimary
-        case "delivered":
-            return .green
-        case "cancelled":
-            return .secondary
-        default:
-            return .secondary
+    private var iconName: String {
+        if notification.isDelivered {
+            return "bell.badge.fill"
+        } else if notification.isCancelled {
+            return "bell.slash.fill"
+        } else {
+            return "bell.fill"
         }
     }
     
-    private var statusBackgroundColor: Color {
-        switch notification.status {
-        case "scheduled":
-            return theme.accentTint
-        case "delivered":
-            return Color.green.opacity(0.15)
-        case "cancelled":
-            return Color(.systemGray5)
-        default:
-            return Color(.systemGray5)
+    private var iconColor: Color {
+        if notification.isDelivered {
+            return .green
+        } else if notification.isCancelled {
+            return .secondary
+        } else {
+            return .purple
+        }
+    }
+    
+    private var iconBackgroundColor: Color {
+        if notification.isDelivered {
+            return Color.green.opacity(0.1)
+        } else if notification.isCancelled {
+            return Color(.systemGray6)
+        } else {
+            return Color.purple.opacity(0.1)
+        }
+    }
+    
+    private var statusColor: Color {
+        if notification.isDelivered {
+            return .green
+        } else if notification.isCancelled {
+            return .secondary
+        } else {
+            return .purple
         }
     }
 }

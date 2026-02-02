@@ -211,7 +211,7 @@ struct ReminderRecord: Identifiable, Codable {
 struct ScheduledNotificationRecord: Identifiable, Codable {
     let id: String
     let uid: String
-    let coachID: String
+    let coachID: String? // Optional to handle legacy data without coach_id
     let sessionID: String?
     let toolRunID: String
     
@@ -251,7 +251,7 @@ struct ScheduledNotificationRecord: Identifiable, Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         uid = try container.decode(String.self, forKey: .uid)
-        coachID = try container.decode(String.self, forKey: .coachID)
+        coachID = try container.decodeIfPresent(String.self, forKey: .coachID) // Made optional
         sessionID = try container.decodeIfPresent(String.self, forKey: .sessionID)
         toolRunID = try container.decode(String.self, forKey: .toolRunID)
         title = try container.decode(String.self, forKey: .title)
@@ -287,7 +287,7 @@ struct ScheduledNotificationRecord: Identifiable, Codable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(uid, forKey: .uid)
-        try container.encode(coachID, forKey: .coachID)
+        try container.encodeIfPresent(coachID, forKey: .coachID) // Made optional
         try container.encodeIfPresent(sessionID, forKey: .sessionID)
         try container.encode(toolRunID, forKey: .toolRunID)
         try container.encode(title, forKey: .title)
