@@ -4,6 +4,7 @@ struct Session: Identifiable, Codable, Equatable {
     let id: String
     let uid: String
     let coachID: String?
+    let coachName: String?
     let title: String
     let mode: String
     let createdAt: Date
@@ -13,6 +14,7 @@ struct Session: Identifiable, Codable, Equatable {
         case id
         case uid
         case coachID = "coach_id"
+        case coachName = "coach_name"
         case title
         case mode
         case createdAt = "created_at"

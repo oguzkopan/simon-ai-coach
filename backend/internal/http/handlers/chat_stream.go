@@ -165,10 +165,26 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 			return
 		}
 
-		// Update session timestamp
-		_, err = fs.DB.Collection("sessions").Doc(sessionID).Update(ctx, []firestore.Update{
+		// Update session timestamp and title (if still "New Session")
+		updates := []firestore.Update{
 			{Path: "updated_at", Value: time.Now()},
-		})
+		}
+		
+		// If session title is still "New Session", generate a better title from the first message
+		if session.Title == "New Session" {
+			// Generate title from first 50 characters of the message
+			title := req.Message
+			if len(title) > 50 {
+				title = title[:50] + "..."
+			}
+			updates = append(updates, firestore.Update{
+				Path:  "title",
+				Value: title,
+			})
+			log.Printf("Updating session title to: %s", title)
+		}
+		
+		_, err = fs.DB.Collection("sessions").Doc(sessionID).Update(ctx, updates)
 		if err != nil {
 			log.Printf("Error updating session: %v", err)
 		}

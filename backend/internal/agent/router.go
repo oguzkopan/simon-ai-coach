@@ -99,8 +99,8 @@ Return a JSON object with:
 {
   "category": "focus" | "planning" | "decision" | "creativity" | "health" | "confidence",
   "urgency": "high" | "medium" | "low",
-  "existing_coach_id": null (for now, we'll implement coach matching later),
-  "generate_coach": true | false,
+  "existing_coach_id": null,
+  "generate_coach": true,
   "tone": "calm_direct" | "warm_supportive" | "socratic"
 }
 
@@ -112,19 +112,24 @@ Categories:
 - health: Reset, recover, self-care
 - confidence: Motivation, encouragement
 
-Be decisive. If unsure, default to "focus" with "calm_direct" tone.`
+Be decisive. If unsure, default to "focus" with "calm_direct" tone.
+Return ONLY the JSON object, no other text.`
 
 	userPrompt := fmt.Sprintf("User prompt: %s", prompt)
 
 	response, err := r.gemini.GenerateContent(ctx, systemPrompt, userPrompt)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("gemini generate content failed: %w", err)
 	}
+
+	// Clean up response - remove markdown code blocks if present
+	response = cleanJSONResponse(response)
 
 	// Parse JSON response
 	var intent Intent
 	if err := json.Unmarshal([]byte(response), &intent); err != nil {
 		// Fallback to default intent
+		fmt.Printf("Failed to parse intent JSON (using fallback): %v\nResponse was: %s\n", err, response)
 		return &Intent{
 			Category:      "focus",
 			Urgency:       "medium",
@@ -134,6 +139,48 @@ Be decisive. If unsure, default to "focus" with "calm_direct" tone.`
 	}
 
 	return &intent, nil
+}
+
+// cleanJSONResponse removes markdown code blocks and extra whitespace
+func cleanJSONResponse(response string) string {
+	// Remove ```json and ``` markers
+	response = trimPrefix(response, "```json")
+	response = trimPrefix(response, "```")
+	response = trimSuffix(response, "```")
+	
+	// Trim whitespace
+	return trimSpace(response)
+}
+
+func trimPrefix(s, prefix string) string {
+	if len(s) >= len(prefix) && s[:len(prefix)] == prefix {
+		return s[len(prefix):]
+	}
+	return s
+}
+
+func trimSuffix(s, suffix string) string {
+	if len(s) >= len(suffix) && s[len(s)-len(suffix):] == suffix {
+		return s[:len(s)-len(suffix)]
+	}
+	return s
+}
+
+func trimSpace(s string) string {
+	start := 0
+	end := len(s)
+	
+	// Trim leading whitespace
+	for start < end && (s[start] == ' ' || s[start] == '\t' || s[start] == '\n' || s[start] == '\r') {
+		start++
+	}
+	
+	// Trim trailing whitespace
+	for end > start && (s[end-1] == ' ' || s[end-1] == '\t' || s[end-1] == '\n' || s[end-1] == '\r') {
+		end--
+	}
+	
+	return s[start:end]
 }
 
 // generateCoach creates a dynamic coach blueprint based on intent

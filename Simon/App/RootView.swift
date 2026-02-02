@@ -126,7 +126,8 @@ struct MainTabView: View {
                             sessionID: sessionId,
                             coachName: coachName,
                             apiClient: apiClient,
-                            initialPrompt: initialPrompt
+                            initialPrompt: initialPrompt,
+                            isNewSession: true // This is a newly created session from CoachDetailView
                         ))
                     }
                 }
@@ -159,17 +160,18 @@ struct MainTabView: View {
                                 sessionID: sessionId,
                                 coachName: coachName,
                                 apiClient: apiClient,
-                                initialPrompt: nil
+                                initialPrompt: nil,
+                                isNewSession: false // This is an existing session from Library
                             ))
                         }
                     }
                     .onAppear {
                         print("🟢 Library tab appeared")
                         // Set up navigation callbacks
-                        libraryVM.onNavigateToChat = { sessionId in
-                            print("🟢 onNavigateToChat called - sessionID: \(sessionId)")
+                        libraryVM.onNavigateToChat = { sessionId, coachName in
+                            print("🟢 onNavigateToChat called - sessionID: \(sessionId), coachName: \(coachName)")
                             // Navigate within Library tab's own navigation stack
-                            libraryNavigationPath.append(LibraryDestination.chat(sessionId: sessionId, coachName: "Coach"))
+                            libraryNavigationPath.append(LibraryDestination.chat(sessionId: sessionId, coachName: coachName))
                             print("🟢 Navigation path appended. Path count: \(libraryNavigationPath.count)")
                         }
                         libraryVM.onNavigateToMoment = {

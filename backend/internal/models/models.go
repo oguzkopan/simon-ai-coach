@@ -29,6 +29,7 @@ type Session struct {
 	ID        string    `firestore:"id" json:"id"`
 	UID       string    `firestore:"uid" json:"uid"`
 	CoachID   *string   `firestore:"coach_id,omitempty" json:"coach_id,omitempty"`
+	CoachName string    `firestore:"coach_name,omitempty" json:"coach_name,omitempty"`
 	Title     string    `firestore:"title" json:"title"`
 	Mode      string    `firestore:"mode" json:"mode"` // "quick" | "system" | "deep"
 	CreatedAt time.Time `firestore:"created_at" json:"created_at"`

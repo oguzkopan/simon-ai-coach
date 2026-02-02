@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 
 struct MomentView: View {
     @StateObject private var vm: MomentViewModel
@@ -48,9 +49,26 @@ struct MomentView: View {
                             }
                             .background(Color(.systemBackground))
                             
+                            // Attached Files Preview
+                            if !vm.attachedFiles.isEmpty {
+                                Divider()
+                                
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 8) {
+                                        ForEach(vm.attachedFiles) { file in
+                                            AttachmentPreview(file: file) {
+                                                vm.removeAttachment(file)
+                                            }
+                                        }
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                }
+                            }
+                            
                             Divider()
                             
-                            // Bottom Bar with Voice, Attachment, and Process Button
+                            // Bottom Bar with Voice, Attachment, and Send Button
                             HStack(spacing: 16) {
                                 // Voice Button
                                 Button(action: { vm.toggleVoiceInput() }) {
@@ -61,41 +79,43 @@ struct MomentView: View {
                                 }
                                 
                                 // Attachment Button
-                                Button(action: { vm.showAttachmentPicker() }) {
+                                PhotosPicker(selection: $vm.selectedPhotoItem, matching: .images) {
                                     Image(systemName: "photo")
                                         .font(.system(size: 20))
                                         .foregroundColor(.secondary)
                                         .frame(width: 44, height: 44)
                                 }
+                                .onChange(of: vm.selectedPhotoItem) { _, _ in
+                                    vm.handlePhotoSelection()
+                                }
                                 
                                 Spacer()
                                 
-                                // Process Button
-                                if !vm.freeformInput.isEmpty {
-                                    Button(action: { 
-                                        isTextFieldFocused = false
-                                        vm.startFreeform()
-                                    }) {
-                                        HStack(spacing: 8) {
-                                            if vm.isLoading {
-                                                ProgressView()
-                                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                            } else {
-                                                Text("Process")
-                                                    .font(theme.font(15, weight: .semibold))
-                                                
-                                                Image(systemName: "arrow.right")
-                                                    .font(.system(size: 14, weight: .semibold))
-                                            }
+                                // Send Button
+                                Button(action: { 
+                                    isTextFieldFocused = false
+                                    vm.startFreeform()
+                                }) {
+                                    HStack(spacing: 6) {
+                                        if vm.isLoading {
+                                            ProgressView()
+                                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                                .scaleEffect(0.8)
+                                        } else {
+                                            Image(systemName: "arrow.up")
+                                                .font(.system(size: 16, weight: .semibold))
                                         }
-                                        .foregroundColor(.white)
-                                        .padding(.horizontal, 24)
-                                        .padding(.vertical, 12)
-                                        .background(theme.accentPrimary)
-                                        .cornerRadius(24)
                                     }
-                                    .disabled(vm.isLoading)
+                                    .foregroundColor(.white)
+                                    .frame(width: 36, height: 36)
+                                    .background(
+                                        (!vm.freeformInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !vm.isLoading) 
+                                            ? theme.accentPrimary 
+                                            : Color.secondary.opacity(0.3)
+                                    )
+                                    .clipShape(Circle())
                                 }
+                                .disabled(vm.freeformInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || vm.isLoading)
                             }
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
@@ -343,5 +363,43 @@ struct TemplateCard: View {
         }
         .buttonStyle(.plain)
         .disabled(isLoading)
+    }
+}
+
+// MARK: - Attachment Preview
+struct AttachmentPreview: View {
+    let file: AttachedFile
+    let onRemove: () -> Void
+    
+    @EnvironmentObject private var theme: ThemeStore
+    
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            // Preview
+            if file.type == .image, let uiImage = UIImage(data: file.data) {
+                Image(uiImage: uiImage)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 60, height: 60)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            } else {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(.systemGray5))
+                    .frame(width: 60, height: 60)
+                    .overlay(
+                        Image(systemName: "doc.fill")
+                            .foregroundColor(.secondary)
+                    )
+            }
+            
+            // Remove button
+            Button(action: onRemove) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 18))
+                    .foregroundColor(.white)
+                    .background(Circle().fill(Color.black.opacity(0.6)))
+            }
+            .offset(x: 6, y: -6)
+        }
     }
 }

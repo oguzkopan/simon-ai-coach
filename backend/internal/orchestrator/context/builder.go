@@ -13,12 +13,14 @@ import (
 
 // ContextPacket contains all context needed for coaching
 type ContextPacket struct {
-	User               *models.User
-	CoachSpec          *models.CoachSpec
-	ActivePlans        []models.Plan
-	RecentSummary      string
-	RetrievalHits      []MemoryHit
+	User                *models.User
+	CoachID             string
+	CoachSpec           *models.CoachSpec
+	ActivePlans         []models.Plan
+	RecentSummary       string
+	RetrievalHits       []MemoryHit
 	ConversationHistory []models.Message // Past messages in this session
+	UserContextSummary  string           // Formatted summary of user context (values, goals, etc.)
 }
 
 // MemoryHit represents a memory search result
@@ -60,6 +62,7 @@ func (cb *ContextBuilder) Build(ctx context.Context, uid string, coachID string,
 		// Use default coach spec if not found
 		coachSpec = cb.getDefaultCoachSpec()
 	}
+	packet.CoachID = coachID
 	packet.CoachSpec = coachSpec
 
 	// CRITICAL: Fetch conversation history for this session
@@ -95,6 +98,11 @@ func (cb *ContextBuilder) Build(ctx context.Context, uid string, coachID string,
 			// Already in user document
 			// No additional fetch needed
 		}
+	}
+
+	// Build user context summary if user has enabled context sharing
+	if user.Preferences.IncludeContext {
+		packet.UserContextSummary = cb.buildUserContextSummary(user)
 	}
 
 	return packet, nil
@@ -240,4 +248,76 @@ func (cb *ContextBuilder) blueprintToCoachSpec(blueprint map[string]interface{})
 	}
 
 	return spec
+}
+
+// buildUserContextSummary creates a formatted summary of user context
+func (cb *ContextBuilder) buildUserContextSummary(user *models.User) string {
+	if user == nil {
+		return ""
+	}
+
+	summary := ""
+
+	// Add values
+	if len(user.ContextVault.Values) > 0 {
+		summary += "**User's Core Values:**\n"
+		for _, value := range user.ContextVault.Values {
+			summary += fmt.Sprintf("- %s\n", value)
+		}
+		summary += "\n"
+	}
+
+	// Add goals
+	if len(user.ContextVault.Goals) > 0 {
+		summary += "**Current Goals:**\n"
+		for _, goal := range user.ContextVault.Goals {
+			summary += fmt.Sprintf("- %s\n", goal)
+		}
+		summary += "\n"
+	}
+
+	// Add constraints
+	if len(user.ContextVault.Constraints) > 0 {
+		summary += "**Constraints & Considerations:**\n"
+		for _, constraint := range user.ContextVault.Constraints {
+			summary += fmt.Sprintf("- %s\n", constraint)
+		}
+		summary += "\n"
+	}
+
+	// Add current projects
+	if len(user.ContextVault.CurrentProjects) > 0 {
+		summary += "**Current Projects:**\n"
+		for _, project := range user.ContextVault.CurrentProjects {
+			summary += fmt.Sprintf("- %s\n", project)
+		}
+		summary += "\n"
+	}
+
+	// Add active commitments
+	activeCommitments := []models.Commitment{}
+	for _, commitment := range user.Commitments {
+		if commitment.Status == "active" {
+			activeCommitments = append(activeCommitments, commitment)
+		}
+	}
+	if len(activeCommitments) > 0 {
+		summary += "**Active Commitments:**\n"
+		for _, commitment := range activeCommitments {
+			summary += fmt.Sprintf("- %s\n", commitment.Text)
+		}
+		summary += "\n"
+	}
+
+	// Add memory summary if available
+	if user.MemorySummary != "" {
+		summary += "**Recent Context:**\n"
+		summary += user.MemorySummary + "\n\n"
+	}
+
+	if summary == "" {
+		return ""
+	}
+
+	return "## User Context\n\n" + summary + "Use this context to provide personalized, relevant coaching. Reference specific values, goals, or constraints when appropriate."
 }

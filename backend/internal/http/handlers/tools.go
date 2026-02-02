@@ -154,6 +154,10 @@ func (h *ToolsHandler) HandleExecute(c *gin.Context) {
 		response.Output = toolRun.Output
 	}
 
+	// Log the response for debugging
+	fmt.Printf("📤 Tool execute response: tool_run_id=%s, status=%s, has_token=%v\n", 
+		response.ToolRunID, response.Status, response.ExecutionToken != "")
+
 	c.JSON(http.StatusOK, response)
 }
 
@@ -277,9 +281,19 @@ func (h *ToolsHandler) executeServerTool(ctx context.Context, tool tools.Tool, i
 	case "plan_create":
 		planService := tools.NewPlanService(h.fs.DB)
 		
-		// Parse input
-		coachID, _ := input["coach_id"].(string)
-		planData, _ := input["plan"].(map[string]interface{})
+		// Parse input - handle both nested and flat structures
+		var planData map[string]interface{}
+		var coachID string
+		
+		// Check if input has nested "plan" structure
+		if nestedPlan, ok := input["plan"].(map[string]interface{}); ok {
+			planData = nestedPlan
+			coachID, _ = input["coach_id"].(string)
+		} else {
+			// Flat structure - plan fields are at top level
+			planData = input
+			coachID, _ = input["coach_id"].(string)
+		}
 		
 		var plan models.Plan
 		if planJSON, err := json.Marshal(planData); err == nil {

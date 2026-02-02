@@ -125,6 +125,130 @@ func (c *Client) GenerateContentStreamWithHistory(ctx context.Context, systemPro
 	return tokens, errors
 }
 
+// ToolCallOrText represents either a tool call or text from Gemini
+type ToolCallOrText struct {
+	IsToolCall bool
+	Text       string
+	ToolCall   *ToolCall
+}
+
+// ToolCall represents a function call from Gemini
+type ToolCall struct {
+	Name      string
+	Arguments map[string]interface{}
+}
+
+// GenerateContentStreamWithTools streams content with function calling support
+func (c *Client) GenerateContentStreamWithTools(
+	ctx context.Context,
+	systemPrompt string,
+	history []interface{},
+	currentMessage string,
+	tools []*genai.Tool,
+) (<-chan ToolCallOrText, <-chan error) {
+	results := make(chan ToolCallOrText, 100)
+	errors := make(chan error, 1)
+
+	go func() {
+		defer close(results)
+		defer close(errors)
+
+		// Configure generation parameters
+		temperature := float32(0.7)
+		topP := float32(0.95)
+		topK := float32(40)
+		
+		config := &genai.GenerateContentConfig{
+			Temperature:     &temperature,
+			TopP:            &topP,
+			TopK:            &topK,
+			MaxOutputTokens: 2048,
+			SystemInstruction: &genai.Content{
+				Parts: []*genai.Part{{Text: systemPrompt}},
+			},
+			Tools: tools,
+		}
+
+		// Build conversation history
+		var contents []*genai.Content
+		for _, msg := range history {
+			if msgMap, ok := msg.(map[string]interface{}); ok {
+				role := "user"
+				if r, ok := msgMap["role"].(string); ok {
+					if r == "assistant" {
+						role = "model"
+					}
+				}
+				
+				text := ""
+				if t, ok := msgMap["content_text"].(string); ok {
+					text = t
+				}
+				
+				if text != "" {
+					contents = append(contents, &genai.Content{
+						Role:  role,
+						Parts: []*genai.Part{{Text: text}},
+					})
+				}
+			}
+		}
+		
+		// Add current user message
+		contents = append(contents, &genai.Content{
+			Role:  "user",
+			Parts: []*genai.Part{{Text: currentMessage}},
+		})
+
+		// Stream responses
+		for resp, err := range c.Raw.Models.GenerateContentStream(ctx, c.Model, contents, config) {
+			if err != nil {
+				errors <- fmt.Errorf("gemini stream error: %w", err)
+				return
+			}
+
+			// Check for function calls
+			if len(resp.Candidates) > 0 && resp.Candidates[0].Content != nil {
+				for _, part := range resp.Candidates[0].Content.Parts {
+					// Check if this is a function call
+					if part.FunctionCall != nil {
+						// Extract function call details
+						toolCall := &ToolCall{
+							Name:      part.FunctionCall.Name,
+							Arguments: part.FunctionCall.Args,
+						}
+						
+						select {
+						case <-ctx.Done():
+							errors <- ctx.Err()
+							return
+						case results <- ToolCallOrText{
+							IsToolCall: true,
+							ToolCall:   toolCall,
+						}:
+							// Tool call sent
+						}
+					} else if part.Text != "" {
+						// Regular text response
+						select {
+						case <-ctx.Done():
+							errors <- ctx.Err()
+							return
+						case results <- ToolCallOrText{
+							IsToolCall: false,
+							Text:       part.Text,
+						}:
+							// Text sent
+						}
+					}
+				}
+			}
+		}
+	}()
+
+	return results, errors
+}
+
 // GenerateContentStream streams content using Gemini (legacy single-prompt method)
 func (c *Client) GenerateContentStream(ctx context.Context, prompt string) (<-chan string, <-chan error) {
 	tokens := make(chan string, 100)

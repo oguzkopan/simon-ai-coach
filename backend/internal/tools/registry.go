@@ -355,21 +355,13 @@ func (r *Registry) registerServerTools() {
 		PermissionDependencies: []string{},
 		InputSchema: map[string]interface{}{
 			"type": "object",
-			"required": []string{"uid", "coach_id", "plan"},
+			"required": []string{"title", "objective", "horizon"},
 			"properties": map[string]interface{}{
-				"uid":      map[string]interface{}{"type": "string"},
-				"coach_id": map[string]interface{}{"type": "string"},
-				"plan": map[string]interface{}{
-					"type": "object",
-					"required": []string{"title", "objective", "horizon"},
-					"properties": map[string]interface{}{
-						"title":        map[string]interface{}{"type": "string"},
-						"objective":    map[string]interface{}{"type": "string"},
-						"horizon":      map[string]interface{}{"type": "string"},
-						"milestones":   map[string]interface{}{"type": "array"},
-						"next_actions": map[string]interface{}{"type": "array"},
-					},
-				},
+				"title":        map[string]interface{}{"type": "string"},
+				"objective":    map[string]interface{}{"type": "string"},
+				"horizon":      map[string]interface{}{"type": "string", "enum": []string{"today", "week", "month", "quarter"}},
+				"milestones":   map[string]interface{}{"type": "array"},
+				"next_actions": map[string]interface{}{"type": "array"},
 			},
 		},
 		OutputSchema: map[string]interface{}{

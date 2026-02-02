@@ -14,7 +14,7 @@ final class LibraryViewModel: ObservableObject {
     
     private let apiClient: SimonAPI
     private var loadTask: Task<Void, Never>?
-    var onNavigateToChat: ((String) -> Void)?
+    var onNavigateToChat: ((String, String) -> Void)? // (sessionId, coachName)
     var onNavigateToMoment: (() -> Void)?
     var onNavigateToSettings: (() -> Void)?
     var onShowAllSessions: (() -> Void)?
@@ -93,8 +93,8 @@ final class LibraryViewModel: ObservableObject {
     }
     
     func continueSession(_ session: Session) {
-        print("🟢 LibraryViewModel.continueSession - sessionID: \(session.id)")
-        onNavigateToChat?(session.id)
+        print("🟢 LibraryViewModel.continueSession - sessionID: \(session.id), coachName: \(session.coachName ?? "Coach")")
+        onNavigateToChat?(session.id, session.coachName ?? "Coach")
     }
     
     func viewSystem(_ system: System) {

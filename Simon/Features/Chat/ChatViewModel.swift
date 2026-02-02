@@ -19,13 +19,13 @@ final class ChatViewModel: ObservableObject {
     @Published var nextActionsCard: NextActionsCardPayload?
     @Published var planCard: PlanCardPayload?
     @Published var weeklyReviewCard: WeeklyReviewCardPayload?
-    @Published var toolRequest: ToolRequestPayload?
+    @Published var toolRequest: ToolRequestPayload? // Shown inline, not as sheet
     @Published var policyNotice: String?
-    @Published var showToolConfirmation = false
     
     let sessionID: String
     let coachName: String
     let initialPrompt: String?
+    let isNewSession: Bool // Flag to indicate if this is a newly created session
     
     private let apiClient: SimonAPI
     private let toolExecutor: ToolExecutor
@@ -38,16 +38,51 @@ final class ChatViewModel: ObservableObject {
     private var sessionUID: String?
     private var sessionCoachID: String?
     
-    init(sessionID: String, coachName: String, apiClient: SimonAPI, toolExecutor: ToolExecutor? = nil, initialPrompt: String? = nil) {
-        print("🟢 ChatViewModel init - sessionID: \(sessionID), coachName: \(coachName)")
+    init(sessionID: String, coachName: String, apiClient: SimonAPI, toolExecutor: ToolExecutor? = nil, initialPrompt: String? = nil, isNewSession: Bool = false) {
+        print("🟢 ChatViewModel init - sessionID: \(sessionID), coachName: \(coachName), isNewSession: \(isNewSession)")
         self.sessionID = sessionID
         self.coachName = coachName
         self.apiClient = apiClient
         self.toolExecutor = toolExecutor ?? ToolExecutor(apiClient: apiClient)
         self.initialPrompt = initialPrompt
+        self.isNewSession = isNewSession
     }
     
     func loadMessages() async {
+        // If this is a brand new session (just created), don't try to load messages
+        // The session exists but has no messages yet - this is expected
+        if isNewSession {
+            print("🟢 Brand new session - skipping message load, waiting for user input")
+            isLoadingMessages = false
+            hasLoadedMessages = true
+            hasCompletedInitialLoad = true
+            
+            // Load session details for context (uid, coachID) but don't fail if it doesn't work yet
+            do {
+                let detail = try await apiClient.getSession(id: sessionID)
+                sessionUID = detail.session.uid
+                sessionCoachID = detail.session.coachID
+                print("✅ Session context loaded: uid=\(sessionUID ?? "nil"), coachID=\(sessionCoachID ?? "nil")")
+            } catch {
+                print("⚠️ Could not load session context yet (session may still be initializing): \(error)")
+                // Don't show error - this is expected for brand new sessions
+            }
+            
+            // If we have an initial prompt, send it automatically
+            if let prompt = initialPrompt, !hasLoadedInitialPrompt {
+                hasLoadedInitialPrompt = true
+                await MainActor.run {
+                    composerText = prompt
+                    Task {
+                        try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+                        send()
+                    }
+                }
+            }
+            
+            return
+        }
+        
         // Prevent multiple simultaneous loads
         guard !hasLoadedMessages else {
             print("⚠️ Messages already loaded, skipping")
@@ -249,13 +284,21 @@ final class ChatViewModel: ObservableObject {
                         print("✅ Message final: \(payload.text.prefix(50))...")
                         // Update with final text
                         if let index = messages.firstIndex(where: { $0.id == assistantID }) {
-                            messages[index] = Message(
-                                id: payload.messageId,
-                                role: payload.role,
-                                contentText: payload.text,
-                                attachments: nil,
-                                createdAt: Date()
-                            )
+                            // Only add message if it has text content
+                            // When function calling happens without text, we skip the message
+                            if !payload.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                messages[index] = Message(
+                                    id: payload.messageId,
+                                    role: payload.role,
+                                    contentText: payload.text,
+                                    attachments: nil,
+                                    createdAt: Date()
+                                )
+                            } else {
+                                // Remove placeholder if message is empty (function call only)
+                                messages.remove(at: index)
+                                print("🗑️ Removed empty assistant message (function call only)")
+                            }
                         }
                         
                     case .cardNextActions(let payload):
@@ -273,7 +316,7 @@ final class ChatViewModel: ObservableObject {
                     case .toolRequest(let payload):
                         print("🔧 Tool request: \(payload.tool)")
                         toolRequest = payload
-                        showToolConfirmation = true
+                        // No longer showing sheet, it's inline in the chat
                         
                     case .toolStatus(let payload):
                         print("🔧 Tool status: \(payload.status)")
@@ -284,7 +327,12 @@ final class ChatViewModel: ObservableObject {
                         
                     case .error(let payload):
                         print("❌ Error event: \(payload.message)")
-                        errorMessage = payload.message
+                        // Check if it's a quota error
+                        if payload.message.contains("quota") || payload.message.contains("429") || payload.message.contains("RESOURCE_EXHAUSTED") {
+                            errorMessage = "⏳ API rate limit reached. Please wait a moment and try again."
+                        } else {
+                            errorMessage = payload.message
+                        }
                         
                     case .streamDone(let payload):
                         print("✅ Stream done: \(payload.status)")
@@ -343,31 +391,60 @@ final class ChatViewModel: ObservableObject {
     func approveToolExecution() async {
         guard let toolRequest = toolRequest else { return }
         
-        // Ensure we have session context
+        // Ensure we have session context - if not, try to reload it
+        if sessionUID == nil || sessionCoachID == nil {
+            print("⚠️ Missing session context, attempting to reload...")
+            do {
+                let detail = try await apiClient.getSession(id: sessionID)
+                sessionUID = detail.session.uid
+                sessionCoachID = detail.session.coachID
+                print("✅ Session context reloaded: uid=\(sessionUID ?? "nil"), coachID=\(sessionCoachID ?? "nil")")
+            } catch {
+                print("❌ Failed to reload session context: \(error)")
+                errorMessage = "Failed to load session context. Please try again."
+                self.toolRequest = nil
+                return
+            }
+        }
+        
         guard let uid = sessionUID, let coachID = sessionCoachID else {
             errorMessage = "Missing session context for tool execution"
+            self.toolRequest = nil
             return
         }
+        
+        // Convert SSEAnyCodable to Any
+        let input = toolRequest.input.mapValues { $0.value }
+        
+        print("🔧 Executing tool: \(toolRequest.toolId)")
+        print("🔧 Input: \(input)")
+        print("🔧 UID: \(uid)")
+        print("🔧 CoachID: \(coachID)")
         
         do {
             try await toolExecutor.executeToolWithConfirmation(
                 toolID: toolRequest.toolId,
                 sessionID: sessionID,
-                input: toolRequest.input,
+                input: input,
                 uid: uid,
                 coachID: coachID,
                 onConfirm: { true }
             )
+            print("✅ Tool execution completed successfully")
         } catch {
+            print("❌ Tool execution failed: \(error)")
             errorMessage = error.localizedDescription
         }
         
-        showToolConfirmation = false
+        // Clear the tool request to hide the approval card
         self.toolRequest = nil
     }
     
     func declineToolExecution() {
         guard let toolRequest = toolRequest else { return }
+        
+        // Convert SSEAnyCodable to Any
+        let input = toolRequest.input.mapValues { $0.value }
         
         Task {
             do {
@@ -375,7 +452,7 @@ final class ChatViewModel: ObservableObject {
                 let response = try await toolExecutor.requestExecution(
                     toolID: toolRequest.toolId,
                     sessionID: sessionID,
-                    input: toolRequest.input
+                    input: input
                 )
                 
                 // Report declined
@@ -389,7 +466,7 @@ final class ChatViewModel: ObservableObject {
             }
         }
         
-        showToolConfirmation = false
+        // Clear the tool request to hide the approval card
         self.toolRequest = nil
     }
     

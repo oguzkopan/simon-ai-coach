@@ -602,7 +602,8 @@ final class SimonAPIClient: SimonAPI {
         }
         
         let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        // Don't use automatic snake_case conversion since ToolExecuteResponse has explicit CodingKeys
+        // decoder.keyDecodingStrategy = .convertFromSnakeCase
         return try decoder.decode(ToolExecuteResponse.self, from: data)
     }
     

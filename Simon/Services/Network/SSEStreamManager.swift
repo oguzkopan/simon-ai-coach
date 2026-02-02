@@ -142,20 +142,26 @@ struct WeeklyReviewCardPayload: Codable {
 struct ToolRequestPayload: Codable {
     let requestId: String
     let toolId: String
-    let tool: String
     let requiresConfirmation: Bool
     let reason: String
     let input: [String: SSEAnyCodable]
-    let payload: [String: SSEAnyCodable]
     
     enum CodingKeys: String, CodingKey {
         case requestId = "request_id"
         case toolId = "tool_id"
-        case tool
         case requiresConfirmation = "requires_confirmation"
         case reason
         case input
-        case payload
+    }
+    
+    // Computed property for backward compatibility
+    var tool: String {
+        return toolId
+    }
+    
+    // Computed property for backward compatibility
+    var payload: [String: SSEAnyCodable] {
+        return input
     }
 }
 
@@ -447,7 +453,8 @@ class SSEStreamManager {
     /// Parse SSE event based on type
     private func parseEvent(type: String, data: String, id: String?) throws -> SSEEvent {
         let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        // Don't use automatic snake_case conversion since we have explicit CodingKeys
+        // decoder.keyDecodingStrategy = .convertFromSnakeCase
         
         guard let jsonData = data.data(using: .utf8) else {
             throw SSEError.parsingError("Invalid UTF-8 data")

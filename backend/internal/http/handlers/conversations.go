@@ -68,6 +68,7 @@ func CreateSession(fs *fsClient.Client) gin.HandlerFunc {
 		}
 
 		// Validate coach exists
+		var coachName string
 		if req.CoachID != "" {
 			doc, err := fs.DB.Collection("coaches").Doc(req.CoachID).Get(ctx)
 			if err != nil {
@@ -86,6 +87,9 @@ func CreateSession(fs *fsClient.Client) gin.HandlerFunc {
 				c.JSON(http.StatusForbidden, gin.H{"error": "access denied"})
 				return
 			}
+			
+			// Store coach name for display
+			coachName = coach.Title
 		}
 
 		// Create session
@@ -98,6 +102,7 @@ func CreateSession(fs *fsClient.Client) gin.HandlerFunc {
 			ID:        uuid.New().String(),
 			UID:       uid,
 			CoachID:   coachIDPtr,
+			CoachName: coachName,
 			Title:     "New Session",
 			Mode:      "quick",
 			CreatedAt: time.Now(),

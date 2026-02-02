@@ -40,9 +40,9 @@ func Load() Config {
 		MaxTokens:   getEnvInt("GEMINI_MAX_TOKENS", 2048),
 		Temperature: getEnvFloat("GEMINI_TEMPERATURE", 0.7),
 
-		FreeTierMomentsPerDay:      getEnvInt("FREE_TIER_MOMENTS_PER_DAY", 3),
-		FreeTierMessagesPerSession: getEnvInt("FREE_TIER_MESSAGES_PER_SESSION", 10),
-		ProTierMessagesPerSession:  getEnvInt("PRO_TIER_MESSAGES_PER_SESSION", 100),
+		FreeTierMomentsPerDay:      getEnvInt("FREE_TIER_MOMENTS_PER_DAY", 100000),
+		FreeTierMessagesPerSession: getEnvInt("FREE_TIER_MESSAGES_PER_SESSION", 100000),
+		ProTierMessagesPerSession:  getEnvInt("PRO_TIER_MESSAGES_PER_SESSION", 100000),
 
 		RevenueCatAPIKey:       getEnv("REVENUECAT_API_KEY", ""),
 		RevenueCatWebhookSecret: getEnv("REVENUECAT_WEBHOOK_SECRET", ""),

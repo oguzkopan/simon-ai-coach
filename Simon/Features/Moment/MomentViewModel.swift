@@ -7,6 +7,9 @@
 
 import Foundation
 import Combine
+import AVFoundation
+import PhotosUI
+import SwiftUI
 
 struct MomentTemplate: Identifiable {
     let id: String
@@ -14,6 +17,18 @@ struct MomentTemplate: Identifiable {
     let description: String
     let icon: String
     let prompt: String
+}
+
+struct AttachedFile: Identifiable {
+    let id = UUID()
+    let name: String
+    let type: AttachmentType
+    let data: Data
+    
+    enum AttachmentType {
+        case image
+        case document
+    }
 }
 
 @MainActor
@@ -30,9 +45,15 @@ final class MomentViewModel: ObservableObject {
     @Published var isRecording: Bool = false
     @Published var routines: [System] = []
     @Published var selectedRoutine: System?
+    @Published var showImagePicker: Bool = false
+    @Published var showDocumentPicker: Bool = false
+    @Published var attachedFiles: [AttachedFile] = []
+    @Published var selectedPhotoItem: PhotosPickerItem?
     
     private let apiClient: SimonAPI
     private let purchases: PurchasesService
+    private var audioRecorder: AVAudioRecorder?
+    private var audioSession: AVAudioSession?
     
     var isPro: Bool {
         purchases.isPro
@@ -198,30 +219,108 @@ final class MomentViewModel: ObservableObject {
     // MARK: - Voice Input
     
     func toggleVoiceInput() {
-        isRecording.toggle()
-        
         if isRecording {
-            startVoiceRecording()
-        } else {
             stopVoiceRecording()
+        } else {
+            startVoiceRecording()
         }
     }
     
     private func startVoiceRecording() {
-        // TODO: Implement voice recording
-        // For now, just toggle the state
-        print("Start voice recording")
+        Task {
+            do {
+                // Request microphone permission
+                let permissionGranted = await AVAudioApplication.requestRecordPermission()
+                
+                guard permissionGranted else {
+                    errorMessage = "Microphone permission is required for voice input"
+                    return
+                }
+                
+                // Setup audio session
+                audioSession = AVAudioSession.sharedInstance()
+                try audioSession?.setCategory(.record, mode: .default)
+                try audioSession?.setActive(true)
+                
+                // Setup recorder
+                let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                let audioFilename = documentsPath.appendingPathComponent("moment_recording_\(Date().timeIntervalSince1970).m4a")
+                
+                let settings: [String: Any] = [
+                    AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+                    AVSampleRateKey: 44100.0,
+                    AVNumberOfChannelsKey: 1,
+                    AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
+                ]
+                
+                audioRecorder = try AVAudioRecorder(url: audioFilename, settings: settings)
+                audioRecorder?.record()
+                
+                isRecording = true
+                
+            } catch {
+                errorMessage = "Failed to start recording: \(error.localizedDescription)"
+                isRecording = false
+            }
+        }
     }
     
     private func stopVoiceRecording() {
-        // TODO: Implement voice recording stop and transcription
-        print("Stop voice recording")
+        audioRecorder?.stop()
+        isRecording = false
+        
+        guard let recordingURL = audioRecorder?.url else {
+            return
+        }
+        
+        // Transcribe audio
+        Task {
+            await transcribeAudio(url: recordingURL)
+        }
+    }
+    
+    private func transcribeAudio(url: URL) async {
+        // TODO: Implement speech-to-text transcription using Speech framework
+        // For now, we'll just clean up the audio file
+        // In production, you would:
+        // 1. Use SFSpeechRecognizer to transcribe the audio
+        // 2. Append the transcribed text to freeformInput
+        // 3. Handle errors gracefully
+        
+        // Clean up the audio file
+        try? FileManager.default.removeItem(at: url)
+        
+        // Show a message that transcription is not yet implemented
+        errorMessage = "Voice transcription coming soon. Please type your message for now."
     }
     
     // MARK: - Attachment
     
     func showAttachmentPicker() {
-        // TODO: Implement attachment picker
-        print("Show attachment picker")
+        showImagePicker = true
+    }
+    
+    func handlePhotoSelection() {
+        guard let item = selectedPhotoItem else { return }
+        
+        Task {
+            do {
+                if let data = try await item.loadTransferable(type: Data.self) {
+                    let file = AttachedFile(
+                        name: "image_\(Date().timeIntervalSince1970).jpg",
+                        type: .image,
+                        data: data
+                    )
+                    attachedFiles.append(file)
+                }
+            } catch {
+                errorMessage = "Failed to load image: \(error.localizedDescription)"
+            }
+            selectedPhotoItem = nil
+        }
+    }
+    
+    func removeAttachment(_ file: AttachedFile) {
+        attachedFiles.removeAll { $0.id == file.id }
     }
 }

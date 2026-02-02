@@ -127,21 +127,24 @@ struct ToolConfirmationSheet: View {
     
     @ViewBuilder
     private var toolPreview: some View {
+        // Convert SSEAnyCodable to Any for preview components
+        let convertedInput = toolRequest.input.mapValues { $0.value }
+        
         switch toolRequest.toolId {
         case "local_notification_schedule":
-            NotificationPreview(input: toolRequest.input)
+            NotificationPreview(input: convertedInput)
             
         case "calendar_event_create":
-            CalendarEventPreview(input: toolRequest.input)
+            CalendarEventPreview(input: convertedInput)
             
         case "reminder_create":
-            ReminderPreview(input: toolRequest.input)
+            ReminderPreview(input: convertedInput)
             
         case "share_sheet_export":
-            ExportPreview(input: toolRequest.input)
+            ExportPreview(input: convertedInput)
             
         default:
-            GenericToolPreview(input: toolRequest.input)
+            GenericToolPreview(input: convertedInput)
         }
     }
 }

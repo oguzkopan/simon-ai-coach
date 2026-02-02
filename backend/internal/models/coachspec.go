@@ -23,6 +23,7 @@ type Identity struct {
 	Outcomes          []string `firestore:"outcomes" json:"outcomes"`
 	Languages         []string `firestore:"languages" json:"languages"`
 	Persona           Persona  `firestore:"persona" json:"persona"`
+	SamplePrompts     []string `firestore:"samplePrompts,omitempty" json:"samplePrompts,omitempty"`
 }
 
 // Persona defines the coach's personality and boundaries

@@ -6,9 +6,11 @@
 //
 
 import SwiftUI
+import SwiftData
 import Combine
 import FirebaseCore
 import FirebaseAuth
+import FirebaseAppCheck
 import GoogleSignIn
 import RevenueCat
 import AppIntents
@@ -20,6 +22,16 @@ struct SimonApp: App {
     @Environment(\.scenePhase) private var scenePhase
     
     init() {
+        // Firebase App Check initialization (must be before Firebase.configure())
+        #if DEBUG
+        // Use debug provider for development/testing
+        let providerFactory = AppCheckDebugProviderFactory()
+        #else
+        // Use DeviceCheck provider for production
+        let providerFactory = AppCheckDeviceCheckProviderFactory()
+        #endif
+        AppCheck.setAppCheckProviderFactory(providerFactory)
+        
         // Firebase initialization
         FirebaseApp.configure()
         
@@ -50,6 +62,7 @@ struct SimonApp: App {
                     deepLinkHandler.handle(url: url)
                 }
         }
+        .modelContainer(for: Moment.self)
         .onChange(of: scenePhase) { oldPhase, newPhase in
             handleScenePhaseChange(from: oldPhase, to: newPhase)
         }

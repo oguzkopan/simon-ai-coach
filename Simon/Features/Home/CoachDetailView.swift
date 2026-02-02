@@ -9,6 +9,8 @@ struct CoachDetailView: View {
     @State private var isStartingSession = false
     @State private var errorMessage: String?
     @State private var pendingPrompt: String?
+    @State private var includeContext = true
+    @State private var isLoadingPreference = true
     
     var onStartChat: ((String, String?) -> Void)?
     private let apiClient: SimonAPIClient
@@ -75,7 +77,7 @@ struct CoachDetailView: View {
                 }
                 
                 // Sample Prompts
-                if let samplePrompts = extractSamplePrompts() {
+                if let samplePrompts = extractSamplePrompts(), !samplePrompts.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Sample Prompts")
                             .font(theme.font(20, weight: .bold))
@@ -93,32 +95,41 @@ struct CoachDetailView: View {
                 }
                 
                 // Context Access (if applicable)
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "shield.fill")
-                            .font(.system(size: 20))
-                            .foregroundColor(theme.accentPrimary)
-                        
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Allow Context Access")
-                                .font(theme.font(15, weight: .semibold))
-                                .foregroundColor(.primary)
+                if authManager.isAuthenticated {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "shield.fill")
+                                .font(.system(size: 20))
+                                .foregroundColor(theme.accentPrimary)
                             
-                            Text("Coach can read your recent context to give relevant advice.")
-                                .font(theme.font(13))
-                                .foregroundColor(.secondary)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Allow Context Access")
+                                    .font(theme.font(15, weight: .semibold))
+                                    .foregroundColor(.primary)
+                                
+                                Text("Coach can read your values, goals, and recent context to give personalized advice.")
+                                    .font(theme.font(13))
+                                    .foregroundColor(.secondary)
+                            }
+                            
+                            Spacer()
+                            
+                            if isLoadingPreference {
+                                ProgressView()
+                            } else {
+                                Toggle("", isOn: $includeContext)
+                                    .labelsHidden()
+                                    .onChange(of: includeContext) { oldValue, newValue in
+                                        updateContextPreference(newValue)
+                                    }
+                            }
                         }
-                        
-                        Spacer()
-                        
-                        Toggle("", isOn: .constant(true))
-                            .labelsHidden()
+                        .padding(16)
+                        .background(Color(.systemGray6))
+                        .cornerRadius(16)
                     }
-                    .padding(16)
-                    .background(Color(.systemGray6))
-                    .cornerRadius(16)
+                    .padding(.horizontal, 20)
                 }
-                .padding(.horizontal, 20)
                 
                 // View Events for this Coach - Removed NavigationLink to fix navigation error
                 // Events can be accessed from the Library tab or through deep links
@@ -160,6 +171,9 @@ struct CoachDetailView: View {
         }
         .navigationTitle(coach.title)
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            await loadContextPreference()
+        }
         .sheet(isPresented: $showSignInPrompt) {
             SignInPromptView(showSignIn: .constant(false))
                 .presentationDetents([.medium])
@@ -167,15 +181,90 @@ struct CoachDetailView: View {
         }
     }
     
+    private func loadContextPreference() async {
+        guard authManager.isAuthenticated else {
+            isLoadingPreference = false
+            return
+        }
+        
+        do {
+            _ = try await apiClient.getContext()
+            // Get user preferences - we'll need to add this to the API
+            // For now, default to true
+            await MainActor.run {
+                includeContext = true
+                isLoadingPreference = false
+            }
+        } catch {
+            await MainActor.run {
+                includeContext = true
+                isLoadingPreference = false
+            }
+        }
+    }
+    
+    private func updateContextPreference(_ enabled: Bool) {
+        Task {
+            do {
+                try await apiClient.updateContextPreference(includeContext: enabled)
+            } catch {
+                // Revert on error
+                await MainActor.run {
+                    includeContext = !enabled
+                    errorMessage = "Failed to update preference"
+                }
+            }
+        }
+    }
+    
     private func extractSamplePrompts() -> [String]? {
-        // Extract sample prompts from blueprint if available
-        // For now, return some generic prompts based on coach type
-        let prompts = [
-            "Help me plan my week effectively.",
-            "Review my current priorities.",
-            "Debug my workflow process."
+        // First try to get from CoachSpec
+        if let coachSpec = coach.coachSpec,
+           let samplePrompts = coachSpec.identity.samplePrompts,
+           !samplePrompts.isEmpty {
+            return samplePrompts
+        }
+        
+        // Fallback to generic prompts based on tags
+        return generateGenericPrompts()
+    }
+    
+    private func generateGenericPrompts() -> [String]? {
+        // Generate contextual prompts based on coach tags
+        let tags = coach.tags.map { $0.lowercased() }
+        
+        if tags.contains("productivity") || tags.contains("systems") {
+            return [
+                "Help me design a morning routine that sticks",
+                "Review my current productivity system",
+                "What's one small system I can build this week?"
+            ]
+        } else if tags.contains("career") || tags.contains("leadership") {
+            return [
+                "Help me prepare for a difficult conversation",
+                "Review my career goals and next steps",
+                "How can I be more effective as a leader?"
+            ]
+        } else if tags.contains("health") || tags.contains("wellness") {
+            return [
+                "Help me build a sustainable exercise habit",
+                "Review my sleep and energy patterns",
+                "What's one health change I should prioritize?"
+            ]
+        } else if tags.contains("learning") || tags.contains("growth") {
+            return [
+                "Help me create a learning plan",
+                "Review my progress on current goals",
+                "What skill should I focus on next?"
+            ]
+        }
+        
+        // Default prompts
+        return [
+            "Help me plan my week effectively",
+            "Review my current priorities",
+            "What should I focus on today?"
         ]
-        return prompts
     }
     
     private func startSession() {

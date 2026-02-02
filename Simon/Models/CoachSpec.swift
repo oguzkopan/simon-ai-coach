@@ -38,6 +38,7 @@ struct Identity: Codable, Equatable {
     let outcomes: [String]
     let languages: [String]
     let persona: Persona
+    let samplePrompts: [String]?
 }
 
 /// Persona defines the coach's personality and boundaries

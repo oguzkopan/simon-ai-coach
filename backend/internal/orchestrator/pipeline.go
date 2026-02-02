@@ -48,7 +48,7 @@ func NewPipeline(fs *firestore.Client, gm *gemini.Client) *Pipeline {
 	return &Pipeline{
 		router:         router.NewRouterAgent(gm),
 		contextBuilder: orchestratorContext.NewContextBuilder(fs, gm),
-		coachAgent:     coach.NewCoachAgent(gm),
+		coachAgent:     coach.NewCoachAgent(gm, fs.DB),
 		plannerAgent:   planner.NewPlannerAgent(gm),
 		safetyFilter:   safety.NewSafetyFilter(),
 		memoryAgent:    memory.NewMemoryAgent(fs, gm),
@@ -62,20 +62,9 @@ func (p *Pipeline) Execute(ctx context.Context, input PipelineInput) (*PipelineO
 	go func() {
 		defer close(stream)
 
-		// Step 1: Router Agent - Classify intent (OPTIMIZED: Skip for most messages)
-		// Only use router for specific keywords to save API quota
-		route := p.getQuickRoute(input.UserMessage)
-		
-		// Only call router API if message contains specific keywords
-		if p.shouldUseRouter(input.UserMessage) {
-			routeResult, err := p.router.Classify(ctx, input.UserMessage, input.UID)
-			if err != nil {
-				// Fallback to default route instead of failing
-				fmt.Printf("Router classification failed (using default): %v\n", err)
-			} else {
-				route = routeResult
-			}
-		}
+		// Step 1: Router Agent - DISABLED to save API quota
+		// Use simple default route instead of calling Gemini for classification
+		route := p.getDefaultRoute(input.UserMessage)
 
 		// Step 2: Context Builder - Fetch relevant context (including conversation history)
 		contextPacket, err := p.contextBuilder.Build(ctx, input.UID, input.CoachID, input.SessionID, route)
@@ -160,13 +149,16 @@ func (p *Pipeline) Execute(ctx context.Context, input PipelineInput) (*PipelineO
 			}
 		}
 
-		// Step 6: Memory Agent - Update user memory asynchronously
-		go func() {
-			if err := p.memoryAgent.Update(context.Background(), input.SessionID, input.UID, coachOutput); err != nil {
-				// Log error but don't fail the request
-				fmt.Printf("Memory update failed: %v\n", err)
-			}
-		}()
+		// Step 6: Memory Agent - TEMPORARILY DISABLED
+		// TODO: Re-enable after implementing proper structured extraction with function calling
+		// The current implementation saves garbage commitments (empty strings, malformed JSON)
+		// go func() {
+		// 	if err := p.memoryAgent.Update(context.Background(), input.SessionID, input.UID, coachOutput); err != nil {
+		// 		// Log error but don't fail the request
+		// 		fmt.Printf("Memory update failed: %v\n", err)
+		// 	}
+		// }()
+		fmt.Printf("Memory agent disabled - will re-enable with function calling\n")
 
 		// Send completion event
 		stream <- SSEEvent{
@@ -183,28 +175,66 @@ func (p *Pipeline) Execute(ctx context.Context, input PipelineInput) (*PipelineO
 	}, nil
 }
 
-// shouldUseRouter determines if we should call the router API
-// This saves API quota by only routing when necessary
-func (p *Pipeline) shouldUseRouter(message string) bool {
-	// Keywords that indicate complex routing needs
-	keywords := []string{
-		"review", "retro", "retrospective", "weekly",
-		"system", "routine", "habit", "schedule",
-		"plan", "strategy", "roadmap",
-	}
-	
+// getDefaultRoute returns a default route based on simple keyword matching
+// This avoids making extra API calls to save quota
+func (p *Pipeline) getDefaultRoute(message string) *router.Route {
 	messageLower := strings.ToLower(message)
-	for _, keyword := range keywords {
-		if strings.Contains(messageLower, keyword) {
-			return true
+	
+	// Check for review/retrospective keywords
+	if strings.Contains(messageLower, "review") || 
+	   strings.Contains(messageLower, "retro") || 
+	   strings.Contains(messageLower, "retrospective") ||
+	   strings.Contains(messageLower, "weekly") {
+		return &router.Route{
+			Name:         "review_retro",
+			Confidence:   0.8,
+			NeedsPlanner: true,
+			ContextKeys:  []string{"active_plans", "commitments", "last_session_summary"},
+			ToolIDs:      []string{"memory_read", "plan_update"},
 		}
 	}
 	
-	return false
-}
-
-// getQuickRoute returns a default route for simple conversations
-func (p *Pipeline) getQuickRoute(message string) *router.Route {
+	// Check for system/routine keywords
+	if strings.Contains(messageLower, "system") || 
+	   strings.Contains(messageLower, "routine") || 
+	   strings.Contains(messageLower, "habit") {
+		return &router.Route{
+			Name:         "make_a_system",
+			Confidence:   0.8,
+			NeedsPlanner: true,
+			ContextKeys:  []string{"values", "active_plans"},
+			ToolIDs:      []string{"plan_create", "checkin_schedule"},
+		}
+	}
+	
+	// Check for scheduling keywords
+	if strings.Contains(messageLower, "schedule") || 
+	   strings.Contains(messageLower, "remind") || 
+	   strings.Contains(messageLower, "calendar") {
+		return &router.Route{
+			Name:         "scheduling",
+			Confidence:   0.8,
+			NeedsPlanner: false,
+			ContextKeys:  []string{"active_plans"},
+			ToolIDs:      []string{"calendar_event_create", "reminder_create", "local_notification_schedule"},
+		}
+	}
+	
+	// Check for deep session keywords
+	if strings.Contains(messageLower, "plan") || 
+	   strings.Contains(messageLower, "strategy") || 
+	   strings.Contains(messageLower, "help me think") ||
+	   strings.Contains(messageLower, "overwhelmed") {
+		return &router.Route{
+			Name:         "deep_session",
+			Confidence:   0.8,
+			NeedsPlanner: true,
+			ContextKeys:  []string{"values", "active_plans", "last_session_summary"},
+			ToolIDs:      []string{"memory_read", "memory_write", "plan_create"},
+		}
+	}
+	
+	// Default to quick nudge
 	return &router.Route{
 		Name:         "quick_nudge",
 		Confidence:   0.8,

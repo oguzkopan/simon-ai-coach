@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -51,6 +52,7 @@ func StartMoment(fs *firestore.Client, gm *gemini.Client, cfg config.Config) gin
 			// Check free tier limit (3 moments per day)
 			count, err := getMomentsCountToday(ctx, fs, uid)
 			if err != nil {
+				c.Error(fmt.Errorf("failed to check moment limit: %w", err))
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check moment limit"})
 				return
 			}
@@ -65,7 +67,8 @@ func StartMoment(fs *firestore.Client, gm *gemini.Client, cfg config.Config) gin
 		router := agent.NewRouter(gm, fs)
 		routeResult, err := router.Route(ctx, uid, req.Prompt)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to route moment"})
+			c.Error(fmt.Errorf("failed to route moment: %w", err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to route moment: %v", err)})
 			return
 		}
 
@@ -81,7 +84,8 @@ func StartMoment(fs *firestore.Client, gm *gemini.Client, cfg config.Config) gin
 
 		sessionID, err := fs.CreateSession(ctx, session)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create session"})
+			c.Error(fmt.Errorf("failed to create session: %w", err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to create session: %v", err)})
 			return
 		}
 
@@ -93,7 +97,8 @@ func StartMoment(fs *firestore.Client, gm *gemini.Client, cfg config.Config) gin
 		}
 
 		if err := fs.AddMessage(ctx, sessionID, userMessage); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save message"})
+			c.Error(fmt.Errorf("failed to save message: %w", err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to save message: %v", err)})
 			return
 		}
 

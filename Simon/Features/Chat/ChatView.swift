@@ -137,6 +137,24 @@ struct ChatView: View {
                             }
                             
                             // Display cards after messages
+                            
+                            // Tool approval card (inline, not sheet)
+                            if let toolRequest = viewModel.toolRequest {
+                                ToolApprovalCard(
+                                    toolRequest: toolRequest,
+                                    onApprove: {
+                                        Task {
+                                            await viewModel.approveToolExecution()
+                                        }
+                                    },
+                                    onDecline: {
+                                        viewModel.declineToolExecution()
+                                    }
+                                )
+                                .padding(.top, 8)
+                                .transition(.scale.combined(with: .opacity))
+                            }
+                            
                             if let nextActions = viewModel.nextActionsCard {
                                 NextActionsCard(
                                     items: nextActions.items,
@@ -254,19 +272,7 @@ struct ChatView: View {
                 }
             }
         }
-        .sheet(isPresented: $viewModel.showToolConfirmation) {
-            if let toolRequest = viewModel.toolRequest {
-                ToolConfirmationSheet(
-                    toolRequest: toolRequest,
-                    onApprove: {
-                        await viewModel.approveToolExecution()
-                    },
-                    onDecline: {
-                        viewModel.declineToolExecution()
-                    }
-                )
-            }
-        }
+        // Removed sheet presentation - now using inline ToolApprovalCard
     }
 }
 
@@ -357,4 +363,250 @@ struct ComposerBar: View {
             .disabled(!isStreaming && text.isEmpty)
         }
     }
+}
+
+// MARK: - Tool Approval Card (Inline)
+
+struct ToolApprovalCard: View {
+    let toolRequest: ToolRequestPayload
+    let onApprove: () -> Void
+    let onDecline: () -> Void
+    
+    @EnvironmentObject private var theme: ThemeStore
+    @State private var isExecuting = false
+    
+    var body: some View {
+        VStack(spacing: 16) {
+            // Header
+            HStack {
+                Image(systemName: toolIcon)
+                    .font(.system(size: 24))
+                    .foregroundColor(theme.accentPrimary)
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(toolTitle)
+                        .font(theme.font(17, weight: .semibold))
+                    Text("Requires your approval")
+                        .font(theme.font(13))
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+            }
+            
+            // Preview
+            toolPreview
+            
+            // Action Buttons
+            HStack(spacing: 12) {
+                Button(action: {
+                    onDecline()
+                }) {
+                    Text("Decline")
+                        .font(theme.font(15, weight: .medium))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                        .background(Color(.systemGray5))
+                        .foregroundColor(.primary)
+                        .cornerRadius(10)
+                }
+                .disabled(isExecuting)
+                
+                Button(action: {
+                    isExecuting = true
+                    onApprove()
+                    // Note: isExecuting will be reset when toolRequest becomes nil
+                }) {
+                    HStack {
+                        if isExecuting {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        } else {
+                            Text("Approve")
+                                .font(theme.font(15, weight: .semibold))
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .background(theme.accentPrimary)
+                    .foregroundColor(.white)
+                    .cornerRadius(10)
+                }
+                .disabled(isExecuting)
+            }
+        }
+        .padding(16)
+        .background(Color(.systemBackground))
+        .cornerRadius(16)
+        .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: 2)
+    }
+    
+    // MARK: - Tool Icon
+    
+    private var toolIcon: String {
+        switch toolRequest.toolId {
+        case "local_notification_schedule":
+            return "bell.fill"
+        case "calendar_event_create":
+            return "calendar.badge.plus"
+        case "reminder_create":
+            return "checklist"
+        default:
+            return "wrench.and.screwdriver"
+        }
+    }
+    
+    // MARK: - Tool Title
+    
+    private var toolTitle: String {
+        switch toolRequest.toolId {
+        case "local_notification_schedule":
+            return "Schedule Notification"
+        case "calendar_event_create":
+            return "Create Calendar Event"
+        case "reminder_create":
+            return "Create Reminder"
+        default:
+            return "Tool Execution"
+        }
+    }
+    
+    // MARK: - Tool Preview
+    
+    @ViewBuilder
+    private var toolPreview: some View {
+        let convertedInput = toolRequest.input.mapValues { $0.value }
+        
+        VStack(alignment: .leading, spacing: 8) {
+            switch toolRequest.toolId {
+            case "local_notification_schedule":
+                if let title = convertedInput["title"] as? String {
+                    HStack {
+                        Image(systemName: "text.bubble")
+                            .font(.system(size: 14))
+                            .foregroundColor(.secondary)
+                        Text(title)
+                            .font(theme.font(15, weight: .medium))
+                    }
+                }
+                
+                if let body = convertedInput["body"] as? String {
+                    Text(body)
+                        .font(theme.font(14))
+                        .foregroundColor(.secondary)
+                }
+                
+                if let trigger = convertedInput["trigger"] as? [String: Any],
+                   let fireAt = trigger["fire_at_iso"] as? String {
+                    HStack {
+                        Image(systemName: "clock")
+                            .font(.system(size: 14))
+                            .foregroundColor(.secondary)
+                        Text(formatISO8601(fireAt))
+                            .font(theme.font(14))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                
+            case "calendar_event_create":
+                if let title = convertedInput["title"] as? String {
+                    Text(title)
+                        .font(theme.font(15, weight: .medium))
+                }
+                
+                if let startISO = convertedInput["start_iso"] as? String,
+                   let endISO = convertedInput["end_iso"] as? String {
+                    HStack {
+                        Image(systemName: "clock")
+                            .font(.system(size: 14))
+                            .foregroundColor(.secondary)
+                        Text("\(formatISO8601(startISO)) - \(formatTime(endISO))")
+                            .font(theme.font(14))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                
+                if let notes = convertedInput["notes"] as? String, !notes.isEmpty {
+                    Text(notes)
+                        .font(theme.font(14))
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                }
+                
+            case "reminder_create":
+                if let title = convertedInput["title"] as? String {
+                    Text(title)
+                        .font(theme.font(15, weight: .medium))
+                }
+                
+                if let dueISO = convertedInput["due_iso"] as? String {
+                    HStack {
+                        Image(systemName: "calendar")
+                            .font(.system(size: 14))
+                            .foregroundColor(.secondary)
+                        Text("Due: \(formatISO8601(dueISO))")
+                            .font(theme.font(14))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                
+            default:
+                Text("Tool: \(toolRequest.toolId)")
+                    .font(theme.font(14))
+                    .foregroundColor(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(Color(.systemGray6))
+        .cornerRadius(10)
+    }
+}
+
+// MARK: - Helper Functions
+
+private func formatISO8601(_ isoString: String) -> String {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    
+    guard let date = formatter.date(from: isoString) else {
+        // Try without fractional seconds
+        formatter.formatOptions = [.withInternetDateTime]
+        guard let date = formatter.date(from: isoString) else {
+            return isoString
+        }
+        
+        let displayFormatter = DateFormatter()
+        displayFormatter.dateStyle = .medium
+        displayFormatter.timeStyle = .short
+        return displayFormatter.string(from: date)
+    }
+    
+    let displayFormatter = DateFormatter()
+    displayFormatter.dateStyle = .medium
+    displayFormatter.timeStyle = .short
+    
+    return displayFormatter.string(from: date)
+}
+
+private func formatTime(_ isoString: String) -> String {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    
+    guard let date = formatter.date(from: isoString) else {
+        // Try without fractional seconds
+        formatter.formatOptions = [.withInternetDateTime]
+        guard let date = formatter.date(from: isoString) else {
+            return isoString
+        }
+        
+        let displayFormatter = DateFormatter()
+        displayFormatter.timeStyle = .short
+        return displayFormatter.string(from: date)
+    }
+    
+    let displayFormatter = DateFormatter()
+    displayFormatter.timeStyle = .short
+    
+    return displayFormatter.string(from: date)
 }

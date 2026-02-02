@@ -2,13 +2,17 @@ package coach
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
+	"cloud.google.com/go/firestore"
+	"google.golang.org/genai"
 	"simon-backend/internal/gemini"
 	"simon-backend/internal/models"
 	orchestratorContext "simon-backend/internal/orchestrator/context"
+	"simon-backend/internal/tools"
 )
 
 // CoachOutput represents the output from the coach agent
@@ -36,16 +40,18 @@ type SSEEvent struct {
 // CoachAgent generates coaching responses using CoachSpec
 type CoachAgent struct {
 	geminiClient *gemini.Client
+	fs           *firestore.Client
 }
 
 // NewCoachAgent creates a new coach agent
-func NewCoachAgent(gm *gemini.Client) *CoachAgent {
+func NewCoachAgent(gm *gemini.Client, fs *firestore.Client) *CoachAgent {
 	return &CoachAgent{
 		geminiClient: gm,
+		fs:           fs,
 	}
 }
 
-// Generate creates a streaming coaching response with conversation history
+// Generate creates a streaming coaching response with conversation history and function calling
 func (ca *CoachAgent) Generate(
 	ctx context.Context,
 	userMessage string,
@@ -53,7 +59,10 @@ func (ca *CoachAgent) Generate(
 	stream chan<- SSEEvent,
 ) (*CoachOutput, error) {
 	// Build system prompt from CoachSpec
-	systemPrompt := ca.buildSystemPrompt(contextPacket.CoachSpec, contextPacket.User, contextPacket.ActivePlans)
+	systemPrompt := ca.buildSystemPrompt(contextPacket.CoachSpec, contextPacket.User, contextPacket.ActivePlans, contextPacket.UserContextSummary)
+
+	// Build tool schemas for function calling
+	toolSchemas := ca.buildToolSchemas(contextPacket.CoachSpec)
 
 	// Send stream.open event
 	stream <- SSEEvent{
@@ -73,40 +82,146 @@ func (ca *CoachAgent) Generate(
 		})
 	}
 
-	// Generate streaming response from Gemini WITH conversation history
+	// Generate streaming response from Gemini WITH function calling
 	fullText := ""
-	var tokenChan <-chan string
-	var errChan <-chan error
+	toolRequests := []ToolRequest{}
 	
-	if len(historyForGemini) > 0 {
-		// Use history-aware method
-		tokenChan, errChan = ca.geminiClient.GenerateContentStreamWithHistory(ctx, systemPrompt, historyForGemini, userMessage)
+	if toolSchemas != nil && len(toolSchemas) > 0 {
+		// Use function calling version
+		resultChan, errChan := ca.geminiClient.GenerateContentStreamWithTools(
+			ctx, systemPrompt, historyForGemini, userMessage, toolSchemas,
+		)
+
+		// Stream results (text and tool calls)
+		for {
+			select {
+			case result, ok := <-resultChan:
+				if !ok {
+					// Stream finished
+					goto streamDone
+				}
+
+				if result.IsToolCall {
+					// Gemini wants to call a tool
+					fmt.Printf("🔧 Tool call detected: %s with args: %+v\n", result.ToolCall.Name, result.ToolCall.Arguments)
+					
+					// Transform Gemini function call format to tool registry format
+					transformedPayload := ca.transformToolPayload(result.ToolCall.Name, result.ToolCall.Arguments)
+					
+					// Check if this is a server tool that should be executed immediately
+					if ca.isServerTool(result.ToolCall.Name) {
+						fmt.Printf("🔧 Server tool detected, executing immediately: %s\n", result.ToolCall.Name)
+						
+						// Execute server tool immediately
+						output, err := ca.executeServerTool(ctx, result.ToolCall.Name, transformedPayload, contextPacket)
+						if err != nil {
+							fmt.Printf("❌ Server tool execution failed: %v\n", err)
+							// Send error event
+							stream <- SSEEvent{
+								Type: "tool.status",
+								Data: map[string]interface{}{
+									"request_id": generateRequestID(),
+									"tool_id":    result.ToolCall.Name,
+									"status":     "failed",
+									"error":      err.Error(),
+								},
+							}
+						} else {
+							fmt.Printf("✅ Server tool executed successfully: %+v\n", output)
+							// Send success event
+							stream <- SSEEvent{
+								Type: "tool.status",
+								Data: map[string]interface{}{
+									"request_id": generateRequestID(),
+									"tool_id":    result.ToolCall.Name,
+									"status":     "executed",
+									"output":     output,
+								},
+							}
+						}
+					} else {
+						// Client tool - send request for user confirmation
+						toolReq := ToolRequest{
+							RequestID:            generateRequestID(),
+							Tool:                 result.ToolCall.Name,
+							RequiresConfirmation: ca.requiresConfirmation(result.ToolCall.Name, contextPacket.CoachSpec),
+							Reason:               fmt.Sprintf("Execute %s", result.ToolCall.Name),
+							Payload:              transformedPayload,
+						}
+						toolRequests = append(toolRequests, toolReq)
+
+						// Send tool request event
+						stream <- SSEEvent{
+							Type: "tool.request",
+							Data: map[string]interface{}{
+								"request_id":            toolReq.RequestID,
+								"tool_id":               toolReq.Tool,
+								"input":                 transformedPayload,
+								"requires_confirmation": toolReq.RequiresConfirmation,
+								"reason":                toolReq.Reason,
+							},
+						}
+					}
+				} else {
+					// Regular text response
+					fullText += result.Text
+					stream <- SSEEvent{
+						Type: "message.delta",
+						Data: map[string]interface{}{
+							"role":  "assistant",
+							"delta": result.Text,
+						},
+					}
+				}
+
+			case err := <-errChan:
+				if err != nil {
+					// Check if it's a quota error
+					errMsg := err.Error()
+					if strings.Contains(errMsg, "RESOURCE_EXHAUSTED") || strings.Contains(errMsg, "429") {
+						return nil, fmt.Errorf("API rate limit reached. Please wait a moment and try again")
+					}
+					return nil, fmt.Errorf("gemini stream failed: %w", err)
+				}
+			}
+		}
 	} else {
-		// First message in conversation - use simple method
-		fullPrompt := systemPrompt + "\n\nUser: " + userMessage
-		tokenChan, errChan = ca.geminiClient.GenerateContentStream(ctx, fullPrompt)
-	}
+		// No tools available, use regular streaming
+		var tokenChan <-chan string
+		var errChan <-chan error
 
-	// Stream tokens
-	for {
-		select {
-		case token, ok := <-tokenChan:
-			if !ok {
-				// Stream finished
-				goto streamDone
-			}
-			fullText += token
-			stream <- SSEEvent{
-				Type: "message.delta",
-				Data: map[string]interface{}{
-					"role":  "assistant",
-					"delta": token,
-				},
-			}
+		if len(historyForGemini) > 0 {
+			tokenChan, errChan = ca.geminiClient.GenerateContentStreamWithHistory(ctx, systemPrompt, historyForGemini, userMessage)
+		} else {
+			fullPrompt := systemPrompt + "\n\nUser: " + userMessage
+			tokenChan, errChan = ca.geminiClient.GenerateContentStream(ctx, fullPrompt)
+		}
 
-		case err := <-errChan:
-			if err != nil {
-				return nil, fmt.Errorf("gemini stream failed: %w", err)
+		// Stream tokens
+		for {
+			select {
+			case token, ok := <-tokenChan:
+				if !ok {
+					goto streamDone
+				}
+				fullText += token
+				stream <- SSEEvent{
+					Type: "message.delta",
+					Data: map[string]interface{}{
+						"role":  "assistant",
+						"delta": token,
+					},
+				}
+
+			case err := <-errChan:
+				if err != nil {
+					// Check if it's a quota error
+					errMsg := err.Error()
+					if strings.Contains(errMsg, "RESOURCE_EXHAUSTED") || strings.Contains(errMsg, "429") {
+						return nil, fmt.Errorf("API rate limit reached. Please wait a moment and try again")
+					}
+					return nil, fmt.Errorf("gemini stream failed: %w", err)
+				}
 			}
 		}
 	}
@@ -116,7 +231,7 @@ streamDone:
 	// Trim trailing whitespace from the final text
 	fullText = strings.TrimSpace(fullText)
 
-	// Send message.final event
+	// Send message.final event (even if empty when only tool calls)
 	stream <- SSEEvent{
 		Type: "message.final",
 		Data: map[string]interface{}{
@@ -127,25 +242,20 @@ streamDone:
 		},
 	}
 
-	// Parse tool requests from response (if any)
-	toolRequests := ca.parseToolRequests(fullText, contextPacket.CoachSpec)
-	for _, toolReq := range toolRequests {
-		stream <- SSEEvent{
-			Type: "tool.request",
-			Data: map[string]interface{}{
-				"request_id":            toolReq.RequestID,
-				"tool":                  toolReq.Tool,
-				"requires_confirmation": toolReq.RequiresConfirmation,
-				"reason":                toolReq.Reason,
-				"payload":               toolReq.Payload,
-			},
-		}
-	}
-
 	return &CoachOutput{
 		MessageText:  fullText,
 		ToolRequests: toolRequests,
 	}, nil
+}
+
+// requiresConfirmation checks if a tool requires user confirmation
+func (ca *CoachAgent) requiresConfirmation(tool string, spec *models.CoachSpec) bool {
+	for _, t := range spec.ToolsAllowed.RequiresUserConfirmation {
+		if t == tool {
+			return true
+		}
+	}
+	return false
 }
 
 // buildSystemPrompt constructs the system prompt from CoachSpec
@@ -153,6 +263,7 @@ func (ca *CoachAgent) buildSystemPrompt(
 	spec *models.CoachSpec,
 	user *models.User,
 	plans []models.Plan,
+	userContextSummary string,
 ) string {
 	var prompt strings.Builder
 
@@ -205,8 +316,12 @@ func (ca *CoachAgent) buildSystemPrompt(
 	}
 	prompt.WriteString("\n")
 
-	// User context
-	if user != nil {
+	// User context summary (if enabled by user)
+	if userContextSummary != "" {
+		prompt.WriteString(userContextSummary)
+		prompt.WriteString("\n")
+	} else if user != nil {
+		// Fallback to basic context if no summary provided
 		prompt.WriteString("User context:\n")
 		if len(user.ContextVault.Values) > 0 {
 			prompt.WriteString(fmt.Sprintf("- Values: %v\n", user.ContextVault.Values))
@@ -254,8 +369,11 @@ func (ca *CoachAgent) buildSystemPrompt(
 				prompt.WriteString(fmt.Sprintf("- %s\n", tool))
 			}
 		}
-		prompt.WriteString("\nIMPORTANT: When you have enough information, PROACTIVELY offer to use these tools.\n")
-		prompt.WriteString("Don't just keep asking questions - take action by creating plans, reminders, or events.\n")
+		prompt.WriteString("\nIMPORTANT: You have access to function calling. When you have enough information:\n")
+		prompt.WriteString("1. CALL THE FUNCTION directly - don't just say you'll do it\n")
+		prompt.WriteString("2. Use the actual function call mechanism, not text descriptions\n")
+		prompt.WriteString("3. After 2-3 exchanges, move from questions to ACTION by calling functions\n")
+		prompt.WriteString("4. Be specific with times, dates, and details in function arguments\n")
 		prompt.WriteString("\n")
 	}
 
@@ -331,6 +449,274 @@ func (ca *CoachAgent) isToolAllowed(tool string, spec *models.CoachSpec) bool {
 	return false
 }
 
+// buildToolSchemas creates Gemini function declarations for allowed tools
+func (ca *CoachAgent) buildToolSchemas(spec *models.CoachSpec) []*genai.Tool {
+	declarations := []*genai.FunctionDeclaration{}
+	
+	// Calendar Event Create
+	if ca.isToolAllowed("calendar_event_create", spec) {
+		declarations = append(declarations, &genai.FunctionDeclaration{
+			Name:        "calendar_event_create",
+			Description: "Create a calendar event to block time for an activity. Use this when the user wants to schedule time for work, meetings, or activities.",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{
+					"title": {
+						Type:        genai.TypeString,
+						Description: "Event title (e.g., 'Deep Work Session', 'Team Meeting')",
+					},
+					"start_iso": {
+						Type:        genai.TypeString,
+						Description: "Start time in ISO 8601 format (e.g., '2024-02-01T09:00:00Z')",
+					},
+					"end_iso": {
+						Type:        genai.TypeString,
+						Description: "End time in ISO 8601 format (e.g., '2024-02-01T11:00:00Z')",
+					},
+					"location": {
+						Type:        genai.TypeString,
+						Description: "Optional location (e.g., 'Home Office', 'Conference Room A')",
+					},
+					"notes": {
+						Type:        genai.TypeString,
+						Description: "Optional notes or description",
+					},
+				},
+				Required: []string{"title", "start_iso", "end_iso"},
+			},
+		})
+	}
+	
+	// Reminder Create
+	if ca.isToolAllowed("reminder_create", spec) {
+		declarations = append(declarations, &genai.FunctionDeclaration{
+			Name:        "reminder_create",
+			Description: "Create a reminder for a task or follow-up. Use this when the user wants to be reminded about something.",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{
+					"title": {
+						Type:        genai.TypeString,
+						Description: "Reminder title (e.g., 'Call John', 'Submit report')",
+					},
+					"due_iso": {
+						Type:        genai.TypeString,
+						Description: "Optional due date/time in ISO 8601 format (e.g., '2024-02-01T15:00:00Z')",
+					},
+					"notes": {
+						Type:        genai.TypeString,
+						Description: "Optional notes or details",
+					},
+					"priority": {
+						Type:        genai.TypeInteger,
+						Description: "Priority level 0-9 (0=none, 5=medium, 9=high)",
+					},
+				},
+				Required: []string{"title"},
+			},
+		})
+	}
+	
+	// Local Notification Schedule
+	if ca.isToolAllowed("local_notification_schedule", spec) {
+		declarations = append(declarations, &genai.FunctionDeclaration{
+			Name:        "local_notification_schedule",
+			Description: "Schedule a local push notification for check-ins or nudges. Use this for recurring reminders or coaching check-ins.",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{
+					"title": {
+						Type:        genai.TypeString,
+						Description: "Notification title",
+					},
+					"body": {
+						Type:        genai.TypeString,
+						Description: "Notification body text",
+					},
+					"fire_at_iso": {
+						Type:        genai.TypeString,
+						Description: "When to fire the notification in ISO 8601 format",
+					},
+				},
+				Required: []string{"title", "body", "fire_at_iso"},
+			},
+		})
+	}
+	
+	// Plan Create
+	if ca.isToolAllowed("plan_create", spec) {
+		declarations = append(declarations, &genai.FunctionDeclaration{
+			Name:        "plan_create",
+			Description: "Create a structured plan with milestones and next actions. Use this when the user wants to plan a project, goal, or initiative.",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{
+					"title": {
+						Type:        genai.TypeString,
+						Description: "Plan title (e.g., 'Launch Side Project', 'Fitness Plan')",
+					},
+					"objective": {
+						Type:        genai.TypeString,
+						Description: "What the plan aims to achieve",
+					},
+					"horizon": {
+						Type:        genai.TypeString,
+						Description: "Time horizon for the plan",
+						Enum:        []string{"today", "week", "month", "quarter"},
+					},
+					"milestones": {
+						Type:        genai.TypeArray,
+						Description: "Key milestones (max 8)",
+						Items: &genai.Schema{
+							Type: genai.TypeObject,
+							Properties: map[string]*genai.Schema{
+								"title":       {Type: genai.TypeString, Description: "Milestone title"},
+								"description": {Type: genai.TypeString, Description: "What success looks like"},
+							},
+						},
+					},
+					"next_actions": {
+						Type:        genai.TypeArray,
+						Description: "Concrete next actions (max 12)",
+						Items: &genai.Schema{
+							Type: genai.TypeObject,
+							Properties: map[string]*genai.Schema{
+								"title":        {Type: genai.TypeString, Description: "Action title"},
+								"duration_min": {Type: genai.TypeInteger, Description: "Estimated duration in minutes"},
+							},
+						},
+					},
+				},
+				Required: []string{"title", "objective", "horizon"},
+			},
+		})
+	}
+	
+	// Memory Write
+	if ca.isToolAllowed("memory_write", spec) {
+		declarations = append(declarations, &genai.FunctionDeclaration{
+			Name:        "memory_write",
+			Description: "Save important user preferences, commitments, or insights to long-term memory. Use this to remember things about the user.",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{
+					"commitments": {
+						Type:        genai.TypeArray,
+						Description: "User commitments or promises",
+						Items: &genai.Schema{
+							Type:        genai.TypeString,
+							Description: "A specific commitment (e.g., 'Write 500 words daily')",
+						},
+					},
+					"preferences": {
+						Type:        genai.TypeObject,
+						Description: "User preferences as key-value pairs",
+					},
+				},
+			},
+		})
+	}
+	
+	// Check-in Schedule
+	if ca.isToolAllowed("checkin_schedule", spec) {
+		declarations = append(declarations, &genai.FunctionDeclaration{
+			Name:        "checkin_schedule",
+			Description: "Schedule recurring check-ins with the user. Use this for daily, weekly, or custom recurring coaching sessions.",
+			Parameters: &genai.Schema{
+				Type: genai.TypeObject,
+				Properties: map[string]*genai.Schema{
+					"cadence_kind": {
+						Type:        genai.TypeString,
+						Description: "Frequency of check-ins",
+						Enum:        []string{"daily", "weekdays", "weekly"},
+					},
+					"hour": {
+						Type:        genai.TypeInteger,
+						Description: "Hour of day (0-23) for check-in",
+					},
+					"minute": {
+						Type:        genai.TypeInteger,
+						Description: "Minute of hour (0-59) for check-in",
+					},
+				},
+				Required: []string{"cadence_kind", "hour", "minute"},
+			},
+		})
+	}
+	
+	// Return as Tool array
+	if len(declarations) == 0 {
+		return nil
+	}
+	
+	return []*genai.Tool{{FunctionDeclarations: declarations}}
+}
+
+// transformToolPayload transforms Gemini function call format to tool registry format
+func (ca *CoachAgent) transformToolPayload(toolName string, geminiPayload map[string]interface{}) map[string]interface{} {
+	switch toolName {
+	case "local_notification_schedule":
+		// Gemini sends: {title, body, fire_at_iso}
+		// Tool registry expects: {title, body, trigger: {kind, fire_at_iso}, idempotency_key}
+		transformed := make(map[string]interface{})
+		
+		// Copy direct fields
+		if title, ok := geminiPayload["title"]; ok {
+			transformed["title"] = title
+		}
+		if body, ok := geminiPayload["body"]; ok {
+			transformed["body"] = body
+		}
+		
+		// Transform fire_at_iso to trigger object
+		if fireAtISO, ok := geminiPayload["fire_at_iso"]; ok {
+			transformed["trigger"] = map[string]interface{}{
+				"kind":        "at_datetime",
+				"fire_at_iso": fireAtISO,
+			}
+		}
+		
+		// Generate idempotency key
+		transformed["idempotency_key"] = fmt.Sprintf("notif_%d", time.Now().UnixNano())
+		
+		return transformed
+		
+	case "calendar_event_create":
+		// Gemini sends: {title, start_iso, end_iso, location?, notes?}
+		// Tool registry expects: same + idempotency_key
+		transformed := make(map[string]interface{})
+		
+		// Copy all fields
+		for k, v := range geminiPayload {
+			transformed[k] = v
+		}
+		
+		// Generate idempotency key
+		transformed["idempotency_key"] = fmt.Sprintf("cal_%d", time.Now().UnixNano())
+		
+		return transformed
+		
+	case "reminder_create":
+		// Gemini sends: {title, due_iso?, notes?, priority?}
+		// Tool registry expects: same + idempotency_key
+		transformed := make(map[string]interface{})
+		
+		// Copy all fields
+		for k, v := range geminiPayload {
+			transformed[k] = v
+		}
+		
+		// Generate idempotency key
+		transformed["idempotency_key"] = fmt.Sprintf("rem_%d", time.Now().UnixNano())
+		
+		return transformed
+		
+	default:
+		// For other tools, return as-is
+		return geminiPayload
+	}
+}
+
 // Helper functions to generate IDs
 func generateSessionID() string {
 	return fmt.Sprintf("session_%d", time.Now().UnixNano())
@@ -342,4 +728,158 @@ func generateMessageID() string {
 
 func generateRequestID() string {
 	return fmt.Sprintf("tr_%d", time.Now().UnixNano())
+}
+
+// isServerTool checks if a tool is executed on the server
+func (ca *CoachAgent) isServerTool(toolName string) bool {
+	serverTools := map[string]bool{
+		"memory_read":       true,
+		"memory_write":      true,
+		"plan_create":       true,
+		"plan_update":       true,
+		"plan_list_active":  true,
+		"checkin_schedule":  true,
+	}
+	return serverTools[toolName]
+}
+
+// executeServerTool executes a server-side tool
+func (ca *CoachAgent) executeServerTool(ctx context.Context, toolName string, payload map[string]interface{}, contextPacket *orchestratorContext.ContextPacket) (map[string]interface{}, error) {
+	// Import the tools package
+	planService := tools.NewPlanService(ca.fs)
+	memoryService := tools.NewMemoryService(ca.fs)
+	checkinService := tools.NewCheckinService(ca.fs)
+	
+	// Get UID from context
+	uid := ""
+	if contextPacket.User != nil {
+		uid = contextPacket.User.UID
+	}
+	
+	// Get CoachID from context
+	coachID := contextPacket.CoachID
+	
+	switch toolName {
+	case "memory_read":
+		query, _ := payload["query"].(string)
+		limit, _ := payload["limit"].(float64)
+		
+		req := tools.MemoryReadRequest{
+			UID:   uid,
+			Query: query,
+			Limit: int(limit),
+		}
+		
+		resp, err := memoryService.Read(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		
+		return map[string]interface{}{
+			"hits": resp.Hits,
+		}, nil
+
+	case "memory_write":
+		patchData, _ := payload["patch"].(map[string]interface{})
+		
+		var patch tools.MemoryPatch
+		if patchJSON, err := json.Marshal(patchData); err == nil {
+			json.Unmarshal(patchJSON, &patch)
+		}
+		
+		req := tools.MemoryWriteRequest{
+			UID:   uid,
+			Patch: patch,
+		}
+		
+		if err := memoryService.Write(ctx, req); err != nil {
+			return nil, err
+		}
+		
+		return map[string]interface{}{"status": "written"}, nil
+
+	case "plan_create":
+		// Build plan from payload
+		var plan models.Plan
+		if planJSON, err := json.Marshal(payload); err == nil {
+			json.Unmarshal(planJSON, &plan)
+		}
+		
+		req := tools.PlanCreateRequest{
+			UID:     uid,
+			CoachID: coachID,
+			Plan:    plan,
+		}
+		
+		resp, err := planService.Create(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		
+		return map[string]interface{}{
+			"plan_id": resp.PlanID,
+			"status":  resp.Status,
+		}, nil
+
+	case "plan_update":
+		planID, _ := payload["plan_id"].(string)
+		updates, _ := payload["updates"].(map[string]interface{})
+		
+		req := tools.PlanUpdateRequest{
+			UID:     uid,
+			PlanID:  planID,
+			Updates: updates,
+		}
+		
+		resp, err := planService.Update(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		
+		return map[string]interface{}{"status": resp.Status}, nil
+
+	case "plan_list_active":
+		limit, _ := payload["limit"].(float64)
+		
+		req := tools.PlanListRequest{
+			UID:   uid,
+			Limit: int(limit),
+		}
+		
+		resp, err := planService.ListActive(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		
+		return map[string]interface{}{"plans": resp.Plans}, nil
+
+	case "checkin_schedule":
+		channel, _ := payload["channel"].(string)
+		cadenceData, _ := payload["cadence"].(map[string]interface{})
+		
+		var cadence models.CheckinCadence
+		if cadenceJSON, err := json.Marshal(cadenceData); err == nil {
+			json.Unmarshal(cadenceJSON, &cadence)
+		}
+		
+		req := tools.CheckinScheduleRequest{
+			UID:     uid,
+			CoachID: coachID,
+			Cadence: cadence,
+			Channel: channel,
+		}
+		
+		resp, err := checkinService.Schedule(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		
+		return map[string]interface{}{
+			"checkin_id": resp.CheckinID,
+			"status":     resp.Status,
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unknown server tool: %s", toolName)
+	}
 }
