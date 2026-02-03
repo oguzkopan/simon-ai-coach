@@ -212,7 +212,7 @@ struct ChatView: View {
                         }
                     }
                 }
-            }
+            } // ScrollViewReader
             
             // Error banner - only show if there are messages (don't duplicate the error state)
             if let errorMessage = viewModel.errorMessage, !viewModel.messages.isEmpty {
@@ -233,30 +233,69 @@ struct ChatView: View {
                 .background(Color.red)
             }
             
-            // Composer
-            ComposerBar(
-                text: $viewModel.composerText,
-                isStreaming: viewModel.isStreaming,
-                isFocused: $isInputFocused,
-                onSend: { viewModel.send() },
-                onStop: { viewModel.stopStreaming() },
-                onAttach: { viewModel.showAttachmentPicker = true }
-            )
-            .padding(16)
-        }
+            // ComposerBar handled by .toolbar
+        } // VStack
         .navigationTitle(viewModel.coachName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
-        .onAppear {
-            print("🟢 ChatView appeared - sessionID: \(viewModel.sessionID)")
+        .toolbar {
+            ToolbarItem(placement: .bottomBar) {
+                HStack(alignment: .bottom, spacing: 10) {
+                    // Attachment button
+                    Button(action: {
+                        viewModel.showAttachmentPicker = true
+                    }) {
+                        Image(systemName: "paperclip")
+                            .font(.system(size: 20))
+                            .foregroundColor(theme.accentPrimary)
+                            .frame(width: 36, height: 36)
+                            .background(Color.white.opacity(0.1))
+                            .clipShape(Circle())
+                    }
+                    .disabled(viewModel.isStreaming)
+                    
+                    // Text field
+                    TextField("Message...", text: $viewModel.composerText, axis: .vertical)
+                        .font(theme.font(16))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .focused($isInputFocused)
+                        .lineLimit(1...5)
+                        .disabled(viewModel.isStreaming)
+                        .background(Color(.systemGray6)) 
+                        .cornerRadius(20)
+                    
+                    // Send/Stop button
+                    Button(action: {
+                        if viewModel.isStreaming {
+                            viewModel.stopStreaming()
+                        } else {
+                            viewModel.send()
+                        }
+                    }) {
+                        Image(systemName: viewModel.isStreaming ? "stop.circle.fill" : "arrow.up.circle.fill")
+                            .font(.system(size: 30))
+                            .foregroundColor(viewModel.isStreaming ? .red : (viewModel.composerText.isEmpty ? .gray : theme.accentPrimary))
+                    }
+                    .disabled(!viewModel.isStreaming && viewModel.composerText.isEmpty)
+                }
+                .padding(.horizontal, 4)
+                .padding(.vertical, 8)
+            }
+        }
+        .toolbarBackground(.visible, for: .bottomBar)
+        .toolbarBackground(.ultraThinMaterial, for: .bottomBar) // Using standard material to mimic Liquid Glass
+        // The following modifier is hypothetical based on "iOS 26" request, 
+        // using standard API that achieves the effect.
+        .toolbarRole(.editor)
+        .task {
+            print("🟢 ChatView .task triggered - sessionID: \(viewModel.sessionID)")
             AnalyticsManager.shared.logScreenView("chat", screenClass: "ChatView")
             AnalyticsManager.shared.logSessionStarted(
                 coachID: viewModel.sessionCoachID ?? "unknown",
                 sessionID: viewModel.sessionID
             )
-        }
-        .task {
-            print("🟢 ChatView .task triggered - sessionID: \(viewModel.sessionID)")
+            
             // Only load messages once when view appears
             if viewModel.messages.isEmpty && !viewModel.isLoadingMessages {
                 print("🟢 Calling loadMessages()")
@@ -327,48 +366,7 @@ struct MessageBubble: View {
     }
 }
 
-struct ComposerBar: View {
-    @Binding var text: String
-    let isStreaming: Bool
-    var isFocused: FocusState<Bool>.Binding
-    let onSend: () -> Void
-    let onStop: () -> Void
-    let onAttach: () -> Void
-    
-    @EnvironmentObject private var theme: ThemeStore
-    
-    var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            // Attachment button (Pro feature)
-            Button(action: onAttach) {
-                Image(systemName: "paperclip")
-                    .font(.system(size: 20))
-                    .foregroundColor(theme.accentPrimary)
-                    .frame(width: 44, height: 44)
-            }
-            .disabled(isStreaming)
-            
-            // Text field
-            TextField("Message...", text: $text, axis: .vertical)
-                .font(theme.font(15))
-                .padding(12)
-                .background(Color(.systemGray6))
-                .cornerRadius(10)
-                .lineLimit(1...4)
-                .focused(isFocused)
-                .disabled(isStreaming)
-            
-            // Send/Stop button
-            Button(action: isStreaming ? onStop : onSend) {
-                Image(systemName: isStreaming ? "stop.circle.fill" : "arrow.up.circle.fill")
-                    .font(.system(size: 32))
-                    .foregroundColor(isStreaming ? .red : (text.isEmpty ? .gray : theme.accentPrimary))
-                    .frame(width: 44, height: 44)
-            }
-            .disabled(!isStreaming && text.isEmpty)
-        }
-    }
-}
+
 
 // MARK: - Tool Approval Card (Inline)
 

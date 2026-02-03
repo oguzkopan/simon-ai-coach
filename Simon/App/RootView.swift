@@ -15,6 +15,7 @@ struct RootView: View {
     @State private var showSignIn = false
     @State private var showOnboarding = !UserDefaults.standard.bool(forKey: "hasCompletedOnboarding")
     @State private var showEventsView = false
+    @State private var selectedTab = 0
     
     // Create API client
     private var apiClient: SimonAPIClient {
@@ -80,6 +81,7 @@ struct MainTabView: View {
     @StateObject private var authManager = AuthenticationManager.shared
     
     @State private var selectedTab = 0
+    
     @State private var showSignIn = false
     @State private var browseNavigationPath = NavigationPath()
     @State private var libraryNavigationPath = NavigationPath()
@@ -132,6 +134,7 @@ struct MainTabView: View {
                     }
                 }
             }
+
             .tabItem {
                 Label("Browse", systemImage: "square.grid.2x2")
             }
@@ -144,6 +147,7 @@ struct MainTabView: View {
                     purchases: purchasesService
                 ))
             }
+
             .tabItem {
                 Label("Moment", systemImage: "bolt.fill")
             }
@@ -186,18 +190,18 @@ struct MainTabView: View {
                             print("Show all sessions")
                         }
                     }
-            }
+            } // NavigationStack
             .tabItem {
                 Label("Library", systemImage: "book.fill")
             }
             .tag(2)
-        }
+        } // TabView
         .tint(theme.accentPrimary)
         .sheet(isPresented: $showSignIn) {
             SignInView()
         }
-    }
-}
+    } // body
+} // MainTabView
 
 // Navigation destination for coach and chat
 enum CoachDestination: Hashable {
