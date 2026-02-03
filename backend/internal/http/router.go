@@ -75,6 +75,7 @@ func New(cfg config.Config, fs *firestore.Client, gm *gemini.Client) (*gin.Engin
 		v1.PUT("/coaches/:id", handlers.UpdateCoach(fs))
 		v1.POST("/coaches/:id/fork", handlers.ForkCoach(fs))
 		v1.POST("/coaches/:id/publish", handlers.PublishCoach(fs, cfg))
+		v1.POST("/coaches/generate-avatar", handlers.GenerateAvatar(""))
 
 		// Session endpoints (to be implemented in Week 1 Day 5-7)
 		v1.GET("/sessions", handlers.ListSessions(fs))

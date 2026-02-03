@@ -15,8 +15,8 @@ final class HomeViewModel: ObservableObject {
     @Published var isOffline = false
     
     let categories = ["All", "Focus", "Planning", "Creativity", "Decision", "Health", "Confidence"]
+    let apiClient: SimonAPI
     
-    private let apiClient: SimonAPI
     private let networkMonitor = NetworkMonitor.shared
     private let errorHandler = ErrorHandler()
     private var cancellables = Set<AnyCancellable>()
@@ -95,6 +95,13 @@ final class HomeViewModel: ObservableObject {
         HapticManager.shared.buttonTap()
         // Navigate to chat (to be implemented)
         print("Starting coach: \(coach.title)")
+    }
+    
+    func handleCoachCreated(_ coach: Coach) {
+        // Add the new coach to the list
+        coaches.insert(coach, at: 0)
+        toast = ToastMessage(type: .success, message: "Coach created successfully!")
+        HapticManager.shared.success()
     }
     
     private func handleAPIError(_ error: APIError) {

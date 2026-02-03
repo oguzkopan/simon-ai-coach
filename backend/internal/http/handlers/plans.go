@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -98,9 +99,12 @@ func UpdatePlan(fs *firestore.Client) gin.HandlerFunc {
 		}
 
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+			fmt.Printf("❌ UpdatePlan bind error: %v\n", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request: " + err.Error()})
 			return
 		}
+
+		fmt.Printf("📝 UpdatePlan: planID=%s, uid=%s, updates=%+v\n", planID, uid, req.Updates)
 
 		planService := tools.NewPlanService(fs.DB)
 		
@@ -110,10 +114,12 @@ func UpdatePlan(fs *firestore.Client) gin.HandlerFunc {
 			Updates: req.Updates,
 		})
 		if err != nil {
+			fmt.Printf("❌ UpdatePlan service error: %v\n", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 
+		fmt.Printf("✅ UpdatePlan: planID=%s, status=%s\n", planID, resp.Status)
 		c.JSON(http.StatusOK, gin.H{
 			"status": resp.Status,
 		})
@@ -138,10 +144,118 @@ func GetPlan(fs *firestore.Client) gin.HandlerFunc {
 			return
 		}
 
+		// Get raw data and clean string due_dates
+		data := doc.Data()
+		if milestones, ok := data["milestones"].([]interface{}); ok {
+			for _, m := range milestones {
+				if milestone, ok := m.(map[string]interface{}); ok {
+					if dueDate, exists := milestone["due_date"]; exists {
+						if _, isString := dueDate.(string); isString {
+							delete(milestone, "due_date")
+						}
+					}
+				}
+			}
+		}
+
 		var plan models.Plan
-		if err := doc.DataTo(&plan); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse plan"})
-			return
+		// Manually populate plan from cleaned data
+		plan.ID = doc.Ref.ID
+		// Initialize slices to empty arrays instead of nil
+		plan.Milestones = []models.Milestone{}
+		plan.NextActions = []models.NextAction{}
+		if uid, ok := data["uid"].(string); ok {
+			plan.UID = uid
+		}
+		if coachID, ok := data["coach_id"].(string); ok {
+			plan.CoachID = coachID
+		}
+		if title, ok := data["title"].(string); ok {
+			plan.Title = title
+		}
+		if objective, ok := data["objective"].(string); ok {
+			plan.Objective = objective
+		}
+		if horizon, ok := data["horizon"].(string); ok {
+			plan.Horizon = horizon
+		}
+		if status, ok := data["status"].(string); ok {
+			plan.Status = status
+		}
+		if createdAt, ok := data["created_at"].(time.Time); ok {
+			plan.CreatedAt = createdAt
+		}
+		if updatedAt, ok := data["updated_at"].(time.Time); ok {
+			plan.UpdatedAt = updatedAt
+		}
+		
+		// Handle milestones
+		if milestones, ok := data["milestones"].([]interface{}); ok {
+			for _, m := range milestones {
+				if milestoneData, ok := m.(map[string]interface{}); ok {
+					milestone := models.Milestone{}
+					if id, ok := milestoneData["id"].(string); ok {
+						milestone.ID = id
+					}
+					if title, ok := milestoneData["title"].(string); ok {
+						milestone.Title = title
+					}
+					if desc, ok := milestoneData["description"].(string); ok {
+						milestone.Description = desc
+					}
+					if status, ok := milestoneData["status"].(string); ok {
+						milestone.Status = status
+					}
+					if dueDate, ok := milestoneData["due_date"].(time.Time); ok {
+						milestone.DueDate = &dueDate
+					}
+					plan.Milestones = append(plan.Milestones, milestone)
+				}
+			}
+		}
+		
+		// Handle next_actions
+		if nextActions, ok := data["next_actions"].([]interface{}); ok {
+			for _, a := range nextActions {
+				if actionData, ok := a.(map[string]interface{}); ok {
+					action := models.NextAction{}
+					if id, ok := actionData["id"].(string); ok {
+						action.ID = id
+					}
+					if title, ok := actionData["title"].(string); ok {
+						action.Title = title
+					}
+					if duration, ok := actionData["duration_min"].(int64); ok {
+						action.DurationMin = int(duration)
+					}
+					if energy, ok := actionData["energy"].(string); ok {
+						action.Energy = energy
+					}
+					if status, ok := actionData["status"].(string); ok {
+						action.Status = status
+					}
+					if completedAt, ok := actionData["completed_at"].(time.Time); ok {
+						action.CompletedAt = &completedAt
+					}
+					
+					// Handle when field
+					if whenData, ok := actionData["when"].(map[string]interface{}); ok {
+						when := &models.When{}
+						if kind, ok := whenData["kind"].(string); ok {
+							when.Kind = kind
+						}
+						if startISO, ok := whenData["start_iso"].(time.Time); ok {
+							when.StartISO = &startISO
+						}
+						if endISO, ok := whenData["end_iso"].(time.Time); ok {
+							when.EndISO = &endISO
+						}
+						action.When = when
+					}
+					
+					plan.NextActions = append(plan.NextActions, action)
+				}
+			}
 		}
 
 		// Verify ownership

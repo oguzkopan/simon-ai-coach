@@ -10,6 +10,7 @@ struct Coach: Identifiable, Codable {
     let blueprint: [String: CoachAnyCodable]?  // Deprecated, kept for backward compatibility
     let coachSpec: CoachSpec?
     let stats: CoachStats
+    let avatarUrl: String?
     let createdAt: Date
     let updatedAt: Date
     
@@ -23,6 +24,7 @@ struct Coach: Identifiable, Codable {
         case blueprint
         case coachSpec
         case stats
+        case avatarUrl = "avatar_url"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }

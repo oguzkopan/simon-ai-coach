@@ -13,6 +13,7 @@ type Coach struct {
 	Blueprint  map[string]interface{} `firestore:"blueprint" json:"blueprint"` // Deprecated: use CoachSpec instead
 	CoachSpec  *CoachSpec             `firestore:"coachSpec,omitempty" json:"coachSpec,omitempty"`
 	Stats      CoachStats             `firestore:"stats" json:"stats"`
+	AvatarURL  string                 `firestore:"avatar_url,omitempty" json:"avatar_url,omitempty"`
 	CreatedAt  time.Time              `firestore:"created_at" json:"created_at"`
 	UpdatedAt  time.Time              `firestore:"updated_at" json:"updated_at"`
 }
@@ -152,29 +153,29 @@ type Plan struct {
 
 // Milestone represents a plan milestone
 type Milestone struct {
-	ID          string    `firestore:"id" json:"id"`
-	Title       string    `firestore:"title" json:"title"`
-	Description string    `firestore:"description,omitempty" json:"description,omitempty"`
-	DueDate     time.Time `firestore:"due_date,omitempty" json:"due_date,omitempty"`
-	Status      string    `firestore:"status" json:"status"` // "pending" | "in_progress" | "completed"
+	ID          string     `firestore:"id" json:"id"`
+	Title       string     `firestore:"title" json:"title"`
+	Description string     `firestore:"description,omitempty" json:"description,omitempty"`
+	DueDate     *time.Time `firestore:"due_date,omitempty" json:"due_date,omitempty"`
+	Status      string     `firestore:"status" json:"status"` // "pending" | "in_progress" | "completed"
 }
 
 // NextAction represents an actionable task
 type NextAction struct {
-	ID          string    `firestore:"id" json:"id"`
-	Title       string    `firestore:"title" json:"title"`
-	DurationMin int       `firestore:"duration_min,omitempty" json:"duration_min,omitempty"`
-	Energy      string    `firestore:"energy,omitempty" json:"energy,omitempty"` // "low" | "medium" | "high"
-	When        *When     `firestore:"when,omitempty" json:"when,omitempty"`
-	Status      string    `firestore:"status" json:"status"` // "pending" | "completed"
-	CompletedAt time.Time `firestore:"completed_at,omitempty" json:"completed_at,omitempty"`
+	ID          string     `firestore:"id" json:"id"`
+	Title       string     `firestore:"title" json:"title"`
+	DurationMin int        `firestore:"duration_min,omitempty" json:"duration_min,omitempty"`
+	Energy      string     `firestore:"energy,omitempty" json:"energy,omitempty"` // "low" | "medium" | "high"
+	When        *When      `firestore:"when,omitempty" json:"when,omitempty"`
+	Status      string     `firestore:"status" json:"status"` // "pending" | "completed"
+	CompletedAt *time.Time `firestore:"completed_at,omitempty" json:"completed_at,omitempty"`
 }
 
 // When represents timing for an action
 type When struct {
-	Kind     string    `firestore:"kind" json:"kind"` // "now" | "today_window" | "schedule_exact"
-	StartISO time.Time `firestore:"start_iso,omitempty" json:"start_iso,omitempty"`
-	EndISO   time.Time `firestore:"end_iso,omitempty" json:"end_iso,omitempty"`
+	Kind     string     `firestore:"kind" json:"kind"` // "now" | "today_window" | "schedule_exact"
+	StartISO *time.Time `firestore:"start_iso,omitempty" json:"start_iso,omitempty"`
+	EndISO   *time.Time `firestore:"end_iso,omitempty" json:"end_iso,omitempty"`
 }
 
 // Checkin represents a scheduled check-in

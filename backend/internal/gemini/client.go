@@ -22,9 +22,10 @@ func New(ctx context.Context, project, location, model string) (*Client, error) 
 
 	// Configure for Vertex AI (uses Application Default Credentials)
 	config := &genai.ClientConfig{
-		Backend:  genai.BackendVertexAI,
-		Project:  project,
-		Location: location,
+		Backend:     genai.BackendVertexAI,
+		Project:     project,
+		Location:    location,
+		HTTPOptions: genai.HTTPOptions{APIVersion: "v1"},
 	}
 
 	// Initialize the Gemini client with Vertex AI backend
@@ -59,14 +60,35 @@ func (c *Client) GenerateContentStreamWithHistory(ctx context.Context, systemPro
 		temperature := float32(0.7)
 		topP := float32(0.95)
 		topK := float32(40)
-		
+
 		config := &genai.GenerateContentConfig{
 			Temperature:     &temperature,
 			TopP:            &topP,
 			TopK:            &topK,
 			MaxOutputTokens: 2048,
+			ThinkingConfig: &genai.ThinkingConfig{
+				ThinkingLevel: genai.ThinkingLevelMinimal,
+			},
 			SystemInstruction: &genai.Content{
 				Parts: []*genai.Part{{Text: systemPrompt}},
+			},
+			SafetySettings: []*genai.SafetySetting{
+				{
+					Category:  genai.HarmCategoryHarassment,
+					Threshold: genai.HarmBlockThresholdBlockNone,
+				},
+				{
+					Category:  genai.HarmCategoryHateSpeech,
+					Threshold: genai.HarmBlockThresholdBlockNone,
+				},
+				{
+					Category:  genai.HarmCategorySexuallyExplicit,
+					Threshold: genai.HarmBlockThresholdBlockNone,
+				},
+				{
+					Category:  genai.HarmCategoryDangerousContent,
+					Threshold: genai.HarmBlockThresholdBlockNone,
+				},
 			},
 		}
 
@@ -80,12 +102,12 @@ func (c *Client) GenerateContentStreamWithHistory(ctx context.Context, systemPro
 						role = "model" // Gemini uses "model" instead of "assistant"
 					}
 				}
-				
+
 				text := ""
 				if t, ok := msgMap["content_text"].(string); ok {
 					text = t
 				}
-				
+
 				if text != "" {
 					contents = append(contents, &genai.Content{
 						Role:  role,
@@ -94,7 +116,7 @@ func (c *Client) GenerateContentStreamWithHistory(ctx context.Context, systemPro
 				}
 			}
 		}
-		
+
 		// Add current user message parts
 		contents = append(contents, &genai.Content{
 			Role:  "user",
@@ -109,14 +131,13 @@ func (c *Client) GenerateContentStreamWithHistory(ctx context.Context, systemPro
 			}
 
 			// Extract text from response using resp.Text() helper
-			text := resp.Text()
-			if text != "" {
+			// Note: resp.Text() returns the text parts of this specific chunk in the stream
+			if text := resp.Text(); text != "" {
 				select {
 				case <-ctx.Done():
 					errors <- ctx.Err()
 					return
 				case tokens <- text:
-					// Token sent successfully
 				}
 			}
 		}
@@ -154,19 +175,40 @@ func (c *Client) GenerateContentStreamWithTools(
 		defer close(errors)
 
 		// Configure generation parameters
-		temperature := float32(0.7)
+		temperature := float32(0.0)
 		topP := float32(0.95)
 		topK := float32(40)
-		
+
 		config := &genai.GenerateContentConfig{
 			Temperature:     &temperature,
 			TopP:            &topP,
 			TopK:            &topK,
 			MaxOutputTokens: 2048,
+			ThinkingConfig: &genai.ThinkingConfig{
+				ThinkingLevel: genai.ThinkingLevelMinimal,
+			},
 			SystemInstruction: &genai.Content{
 				Parts: []*genai.Part{{Text: systemPrompt}},
 			},
 			Tools: tools,
+			SafetySettings: []*genai.SafetySetting{
+				{
+					Category:  genai.HarmCategoryHarassment,
+					Threshold: genai.HarmBlockThresholdBlockNone,
+				},
+				{
+					Category:  genai.HarmCategoryHateSpeech,
+					Threshold: genai.HarmBlockThresholdBlockNone,
+				},
+				{
+					Category:  genai.HarmCategorySexuallyExplicit,
+					Threshold: genai.HarmBlockThresholdBlockNone,
+				},
+				{
+					Category:  genai.HarmCategoryDangerousContent,
+					Threshold: genai.HarmBlockThresholdBlockNone,
+				},
+			},
 		}
 
 		// Build conversation history
@@ -179,12 +221,12 @@ func (c *Client) GenerateContentStreamWithTools(
 						role = "model"
 					}
 				}
-				
+
 				text := ""
 				if t, ok := msgMap["content_text"].(string); ok {
 					text = t
 				}
-				
+
 				if text != "" {
 					contents = append(contents, &genai.Content{
 						Role:  role,
@@ -193,7 +235,7 @@ func (c *Client) GenerateContentStreamWithTools(
 				}
 			}
 		}
-		
+
 		// Add current user message parts
 		contents = append(contents, &genai.Content{
 			Role:  "user",
@@ -207,17 +249,28 @@ func (c *Client) GenerateContentStreamWithTools(
 				return
 			}
 
-			// Check for function calls
+			// 1. Send text as it arrives (resp.Text() returns the text in this chunk)
+			if text := resp.Text(); text != "" {
+				select {
+				case <-ctx.Done():
+					errors <- ctx.Err()
+					return
+				case results <- ToolCallOrText{
+					IsToolCall: false,
+					Text:       text,
+				}:
+				}
+			}
+
+			// 2. Check for function calls in this chunk
 			if len(resp.Candidates) > 0 && resp.Candidates[0].Content != nil {
 				for _, part := range resp.Candidates[0].Content.Parts {
-					// Check if this is a function call
 					if part.FunctionCall != nil {
-						// Extract function call details
 						toolCall := &ToolCall{
 							Name:      part.FunctionCall.Name,
 							Arguments: part.FunctionCall.Args,
 						}
-						
+
 						select {
 						case <-ctx.Done():
 							errors <- ctx.Err()
@@ -226,19 +279,6 @@ func (c *Client) GenerateContentStreamWithTools(
 							IsToolCall: true,
 							ToolCall:   toolCall,
 						}:
-							// Tool call sent
-						}
-					} else if part.Text != "" {
-						// Regular text response
-						select {
-						case <-ctx.Done():
-							errors <- ctx.Err()
-							return
-						case results <- ToolCallOrText{
-							IsToolCall: false,
-							Text:       part.Text,
-						}:
-							// Text sent
 						}
 					}
 				}
@@ -262,7 +302,7 @@ func (c *Client) GenerateContentStream(ctx context.Context, prompt string) (<-ch
 		temperature := float32(0.7)
 		topP := float32(0.95)
 		topK := float32(40)
-		
+
 		config := &genai.GenerateContentConfig{
 			Temperature:     &temperature,
 			TopP:            &topP,
@@ -294,4 +334,3 @@ func (c *Client) GenerateContentStream(ctx context.Context, prompt string) (<-ch
 
 	return tokens, errors
 }
-

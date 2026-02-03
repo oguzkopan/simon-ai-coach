@@ -4,11 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	"cloud.google.com/go/firestore"
 	fsClient "simon-backend/internal/firestore"
 	"simon-backend/internal/gemini"
 	"simon-backend/internal/models"
 	"simon-backend/internal/orchestrator/router"
+
+	"cloud.google.com/go/firestore"
 )
 
 // ContextPacket contains all context needed for coaching
@@ -25,7 +26,7 @@ type ContextPacket struct {
 
 // MemoryHit represents a memory search result
 type MemoryHit struct {
-	Type    string  // "commitment", "preference", "note", "session_summary"
+	Type    string // "commitment", "preference", "note", "session_summary"
 	ID      string
 	Snippet string
 	Score   float64
@@ -118,15 +119,19 @@ func (cb *ContextBuilder) getUserDoc(ctx context.Context, uid string) (*models.U
 }
 
 // getCoachSpec fetches the coach specification
+// getCoachSpec fetches the coach specification
 func (cb *ContextBuilder) getCoachSpec(ctx context.Context, coachID string) (*models.CoachSpec, error) {
 	coach, err := cb.fs.GetCoach(ctx, coachID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Extract CoachSpec from coach
-	// For now, return a basic spec based on blueprint
-	// TODO: Update when CoachSpec field is added to Coach model
+	// Use CoachSpec if available (Preferred)
+	if coach.CoachSpec != nil {
+		return coach.CoachSpec, nil
+	}
+
+	// Fallback to blueprint for backward compatibility
 	return cb.blueprintToCoachSpec(coach.Blueprint), nil
 }
 
@@ -147,10 +152,13 @@ func (cb *ContextBuilder) getLastSessionSummary(ctx context.Context, uid string)
 }
 
 // getConversationHistory fetches all messages in a session
+// getConversationHistory fetches recent messages in a session
 func (cb *ContextBuilder) getConversationHistory(ctx context.Context, sessionID string) ([]models.Message, error) {
+	// Fetch only the last 30 messages to avoid blowing up the context window
 	iter := cb.fs.DB.Collection("sessions").Doc(sessionID).
 		Collection("messages").
-		OrderBy("created_at", firestore.Asc).
+		OrderBy("created_at", firestore.Desc).
+		Limit(30).
 		Documents(ctx)
 	defer iter.Stop()
 
@@ -166,6 +174,11 @@ func (cb *ContextBuilder) getConversationHistory(ctx context.Context, sessionID 
 			continue
 		}
 		messages = append(messages, msg)
+	}
+
+	// Reverse to chronological order (oldest -> newest) for the LLM
+	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
+		messages[i], messages[j] = messages[j], messages[i]
 	}
 
 	return messages, nil

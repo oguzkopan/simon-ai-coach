@@ -1,318 +1,428 @@
-//
-//  CoachBuilderView.swift
-//  Simon
-//
-//  Created on 2026-01-19.
-//
-
 import SwiftUI
 
 struct CoachBuilderView: View {
-    @StateObject private var vm: CoachBuilderViewModel
+    @StateObject private var viewModel: CoachBuilderViewModel
     @EnvironmentObject private var theme: ThemeStore
     @Environment(\.dismiss) private var dismiss
     
-    init(vm: CoachBuilderViewModel) {
-        _vm = StateObject(wrappedValue: vm)
+    init(viewModel: CoachBuilderViewModel) {
+        _viewModel = StateObject(wrappedValue: viewModel)
     }
     
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                // Progress indicator
-                ProgressView(value: Double(vm.currentStep + 1), total: Double(vm.totalSteps))
-                    .tint(theme.accentPrimary)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
-                
-                // Step content
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 24) {
-                        stepContent
-                    }
-                    .padding(16)
-                }
-                
-                // Navigation buttons
-                VStack(spacing: 12) {
-                    if let errorMessage = vm.errorMessage {
-                        Text(errorMessage)
-                            .font(theme.font(13))
-                            .foregroundColor(.red)
-                            .multilineTextAlignment(.center)
-                    }
+        NavigationView {
+            ScrollView {
+                VStack(spacing: 24) {
+                    // Avatar Section
+                    avatarSection
                     
-                    HStack(spacing: 12) {
-                        if vm.currentStep > 0 {
-                            Button(action: { vm.previousStep() }) {
-                                Text("Back")
-                                    .font(theme.font(17, weight: .semibold))
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 52)
-                            }
-                            .buttonStyle(.bordered)
-                            .tint(theme.accentPrimary)
-                        }
-                        
-                        if vm.isLastStep {
-                            Button(action: { Task { await vm.save() } }) {
-                                if vm.isLoading {
-                                    ProgressView()
-                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                } else {
-                                    Text("Save")
-                                        .font(theme.font(17, weight: .semibold))
-                                }
-                            }
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 52)
-                            .background(theme.accentPrimary)
-                            .foregroundColor(.white)
-                            .cornerRadius(12)
-                            .disabled(!vm.canProceed || vm.isLoading)
-                            
-                            Button(action: { Task { await vm.publish() } }) {
-                                if vm.isLoading {
-                                    ProgressView()
-                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                } else {
-                                    HStack(spacing: 4) {
-                                        Text("Publish")
-                                        Image(systemName: "lock.fill")
-                                            .font(.system(size: 12))
-                                    }
-                                    .font(theme.font(17, weight: .semibold))
-                                }
-                            }
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 52)
-                            .background(theme.accentMuted)
-                            .foregroundColor(theme.accentPrimary)
-                            .cornerRadius(12)
-                            .disabled(!vm.canProceed || vm.isLoading)
-                        } else {
-                            Button(action: { vm.nextStep() }) {
-                                Text("Next")
-                                    .font(theme.font(17, weight: .semibold))
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 52)
-                            }
-                            .background(theme.accentPrimary)
-                            .foregroundColor(.white)
-                            .cornerRadius(12)
-                            .disabled(!vm.canProceed)
-                        }
-                    }
+                    // Basic Info Section
+                    basicInfoSection
+                    
+                    // Specialty Section
+                    specialtySection
+                    
+                    // Style Section
+                    styleSection
+                    
+                    // Advanced Options
+                    advancedSection
+                    
+                    // Create Button
+                    createButton
                 }
-                .padding(16)
+                .padding(20)
+                .padding(.bottom, 40)
             }
             .navigationTitle("Create Coach")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") {
                         dismiss()
                     }
+                    .foregroundColor(theme.accentPrimary)
                 }
             }
-        }
-        .sheet(isPresented: $vm.showPaywall) {
-            PaywallView()
-        }
-    }
-    
-    @ViewBuilder
-    private var stepContent: some View {
-        switch vm.currentStep {
-        case 0:
-            step1NameAndPromise
-        case 1:
-            step2StyleAndTone
-        case 2:
-            step3Framework
-        case 3:
-            step4Guardrails
-        default:
-            EmptyView()
+            .overlay {
+                if viewModel.isGeneratingAvatar {
+                    avatarGenerationOverlay
+                }
+            }
+            .alert("Error", isPresented: $viewModel.showError) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(viewModel.errorMessage ?? "An error occurred")
+            }
         }
     }
     
-    private var step1NameAndPromise: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Name your coach")
-                .font(theme.font(28, weight: .bold))
+    // MARK: - Avatar Section
+    
+    private var avatarSection: some View {
+        VStack(spacing: 16) {
+            Text("Coach Avatar")
+                .font(theme.font(17, weight: .semibold))
+                .frame(maxWidth: .infinity, alignment: .leading)
             
-            Text("Give it a clear name and promise")
-                .font(theme.font(15))
-                .foregroundColor(.secondary)
+            // Avatar Preview
+            ZStack {
+                if let avatarImage = viewModel.avatarImage {
+                    Image(uiImage: avatarImage)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 120, height: 120)
+                        .clipShape(Circle())
+                } else {
+                    Circle()
+                        .fill(Color(.systemGray5))
+                        .frame(width: 120, height: 120)
+                        .overlay {
+                            Image(systemName: "person.circle.fill")
+                                .font(.system(size: 60))
+                                .foregroundColor(.gray)
+                        }
+                }
+            }
+            .frame(maxWidth: .infinity)
             
+            // Avatar Prompt
             VStack(alignment: .leading, spacing: 8) {
-                Text("Name")
-                    .font(theme.font(13, weight: .semibold))
+                Text("Avatar Description")
+                    .font(theme.font(15, weight: .medium))
                     .foregroundColor(.secondary)
                 
-                TextField("e.g., Focus Sprint Coach", text: $vm.draft.name)
+                TextField("Describe your coach's appearance...", text: $viewModel.avatarPrompt, axis: .vertical)
                     .font(theme.font(15))
                     .padding(12)
                     .background(Color(.systemGray6))
-                    .cornerRadius(10)
+                    .cornerRadius(12)
+                    .lineLimit(3...6)
+            }
+            
+            Button(action: { viewModel.generateAvatar() }) {
+                HStack {
+                    Image(systemName: "sparkles")
+                    Text("Generate Avatar")
+                        .font(theme.font(15, weight: .semibold))
+                }
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(theme.accentPrimary)
+                .cornerRadius(12)
+            }
+            .disabled(viewModel.avatarPrompt.isEmpty || viewModel.isGeneratingAvatar)
+        }
+        .padding(16)
+        .background(Color(.systemBackground))
+        .cornerRadius(16)
+        .shadow(color: Color.black.opacity(0.05), radius: 8, x: 0, y: 2)
+    }
+    
+    // MARK: - Basic Info Section
+    
+    private var basicInfoSection: some View {
+        VStack(spacing: 16) {
+            Text("Basic Information")
+                .font(theme.font(17, weight: .semibold))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Coach Name")
+                    .font(theme.font(15, weight: .medium))
+                    .foregroundColor(.secondary)
+                
+                TextField("e.g., Focus Sprint Coach", text: $viewModel.title)
+                    .font(theme.font(15))
+                    .padding(12)
+                    .background(Color(.systemGray6))
+                    .cornerRadius(12)
             }
             
             VStack(alignment: .leading, spacing: 8) {
                 Text("Promise")
-                    .font(theme.font(13, weight: .semibold))
+                    .font(theme.font(15, weight: .medium))
                     .foregroundColor(.secondary)
                 
-                TextField("What will this coach help with?", text: $vm.draft.promise, axis: .vertical)
+                TextField("What will this coach help with?", text: $viewModel.promise, axis: .vertical)
                     .font(theme.font(15))
-                    .lineLimit(2...3)
                     .padding(12)
                     .background(Color(.systemGray6))
-                    .cornerRadius(10)
+                    .cornerRadius(12)
+                    .lineLimit(2...4)
             }
         }
+        .padding(16)
+        .background(Color(.systemBackground))
+        .cornerRadius(16)
+        .shadow(color: Color.black.opacity(0.05), radius: 8, x: 0, y: 2)
     }
     
-    private var step2StyleAndTone: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Choose a style")
-                    .font(theme.font(28, weight: .bold))
-                
-                Text("How should your coach communicate?")
-                    .font(theme.font(15))
-                    .foregroundColor(.secondary)
-            }
+    // MARK: - Specialty Section
+    
+    private var specialtySection: some View {
+        VStack(spacing: 16) {
+            Text("Specialty")
+                .font(theme.font(17, weight: .semibold))
+                .frame(maxWidth: .infinity, alignment: .leading)
             
-            VStack(spacing: 12) {
-                ForEach(CoachDraft.CoachStyle.allCases, id: \.self) { style in
-                    Button(action: { vm.draft.style = style }) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(style.displayName)
-                                    .font(theme.font(17, weight: .semibold))
-                                    .foregroundColor(.primary)
-                                
-                                Text(style.description)
-                                    .font(theme.font(13))
-                                    .foregroundColor(.secondary)
-                            }
-                            
-                            Spacer()
-                            
-                            Image(systemName: vm.draft.style == style ? "checkmark.circle.fill" : "circle")
-                                .foregroundColor(vm.draft.style == style ? theme.accentPrimary : .secondary)
-                                .font(.system(size: 24))
-                        }
-                        .padding(16)
-                        .background(vm.draft.style == style ? theme.accentTint : Color(.systemGray6))
-                        .cornerRadius(12)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(vm.draft.style == style ? theme.accentPrimary : Color.clear, lineWidth: 2)
-                        )
-                    }
-                    .buttonStyle(.plain)
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                ForEach(CoachSpecialty.allCases, id: \.self) { specialty in
+                    SpecialtyChip(
+                        specialty: specialty,
+                        isSelected: viewModel.selectedSpecialty == specialty,
+                        action: { viewModel.selectedSpecialty = specialty }
+                    )
                 }
             }
+        }
+        .padding(16)
+        .background(Color(.systemBackground))
+        .cornerRadius(16)
+        .shadow(color: Color.black.opacity(0.05), radius: 8, x: 0, y: 2)
+    }
+    
+    // MARK: - Style Section
+    
+    private var styleSection: some View {
+        VStack(spacing: 16) {
+            Text("Coaching Style")
+                .font(theme.font(17, weight: .semibold))
+                .frame(maxWidth: .infinity, alignment: .leading)
             
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Tone")
+            VStack(spacing: 12) {
+                ForEach(CoachingStyle.allCases, id: \.self) { style in
+                    StyleOption(
+                        style: style,
+                        isSelected: viewModel.selectedStyle == style,
+                        action: { viewModel.selectedStyle = style }
+                    )
+                }
+            }
+        }
+        .padding(16)
+        .background(Color(.systemBackground))
+        .cornerRadius(16)
+        .shadow(color: Color.black.opacity(0.05), radius: 8, x: 0, y: 2)
+    }
+    
+    // MARK: - Advanced Section
+    
+    private var advancedSection: some View {
+        VStack(spacing: 16) {
+            HStack {
+                Text("Advanced Options")
                     .font(theme.font(17, weight: .semibold))
                 
-                HStack {
-                    Text("Gentle")
-                        .font(theme.font(13))
-                        .foregroundColor(.secondary)
+                Spacer()
+                
+                Button(action: { withAnimation { viewModel.showAdvanced.toggle() } }) {
+                    Image(systemName: viewModel.showAdvanced ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(theme.accentPrimary)
+                }
+            }
+            
+            if viewModel.showAdvanced {
+                VStack(alignment: .leading, spacing: 16) {
+                    // Tone Slider
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Tone")
+                                .font(theme.font(15, weight: .medium))
+                            Spacer()
+                            Text(viewModel.toneLabel)
+                                .font(theme.font(13))
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        Slider(value: $viewModel.tone, in: 0...1, step: 0.1)
+                            .tint(theme.accentPrimary)
+                    }
                     
-                    Slider(value: $vm.draft.tone, in: 0...1)
-                        .tint(theme.accentPrimary)
-                    
-                    Text("Intense")
-                        .font(theme.font(13))
-                        .foregroundColor(.secondary)
+                    // System Prompt
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Custom System Prompt (Optional)")
+                            .font(theme.font(15, weight: .medium))
+                            .foregroundColor(.secondary)
+                        
+                        TextField("Add custom instructions...", text: $viewModel.customSystemPrompt, axis: .vertical)
+                            .font(theme.font(14))
+                            .padding(12)
+                            .background(Color(.systemGray6))
+                            .cornerRadius(12)
+                            .lineLimit(4...8)
+                    }
                 }
             }
         }
+        .padding(16)
+        .background(Color(.systemBackground))
+        .cornerRadius(16)
+        .shadow(color: Color.black.opacity(0.05), radius: 8, x: 0, y: 2)
     }
     
-    private var step3Framework: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Pick a framework")
-                    .font(theme.font(28, weight: .bold))
-                
-                Text("What structure should guide the coaching?")
-                    .font(theme.font(15))
-                    .foregroundColor(.secondary)
-            }
-            
-            VStack(spacing: 12) {
-                ForEach(CoachDraft.CoachFramework.allCases, id: \.self) { framework in
-                    Button(action: { vm.draft.framework = framework }) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(framework.displayName)
-                                    .font(theme.font(17, weight: .semibold))
-                                    .foregroundColor(.primary)
-                                
-                                Text(framework.description)
-                                    .font(theme.font(13))
-                                    .foregroundColor(.secondary)
-                            }
-                            
-                            Spacer()
-                            
-                            Image(systemName: vm.draft.framework == framework ? "checkmark.circle.fill" : "circle")
-                                .foregroundColor(vm.draft.framework == framework ? theme.accentPrimary : .secondary)
-                                .font(.system(size: 24))
-                        }
-                        .padding(16)
-                        .background(vm.draft.framework == framework ? theme.accentTint : Color(.systemGray6))
-                        .cornerRadius(12)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(vm.draft.framework == framework ? theme.accentPrimary : Color.clear, lineWidth: 2)
-                        )
-                    }
-                    .buttonStyle(.plain)
+    // MARK: - Create Button
+    
+    private var createButton: some View {
+        Button(action: { viewModel.createCoach() }) {
+            HStack {
+                if viewModel.isCreating {
+                    ProgressView()
+                        .tint(.white)
+                } else {
+                    Text("Create Coach")
+                        .font(theme.font(17, weight: .semibold))
                 }
             }
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .background(viewModel.canCreate ? theme.accentPrimary : Color.gray)
+            .cornerRadius(16)
+        }
+        .disabled(!viewModel.canCreate || viewModel.isCreating)
+    }
+    
+    // MARK: - Avatar Generation Overlay
+    
+    private var avatarGenerationOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.4)
+                .ignoresSafeArea()
+            
+            VStack(spacing: 20) {
+                ProgressView()
+                    .scaleEffect(1.5)
+                    .tint(.white)
+                
+                Text("Generating Avatar...")
+                    .font(theme.font(17, weight: .semibold))
+                    .foregroundColor(.white)
+                
+                Text("This may take a moment")
+                    .font(theme.font(14))
+                    .foregroundColor(.white.opacity(0.8))
+            }
+            .padding(40)
+            .background(Color(.systemGray))
+            .cornerRadius(20)
+        }
+    }
+}
+
+// MARK: - Supporting Views
+
+struct SpecialtyChip: View {
+    let specialty: CoachSpecialty
+    let isSelected: Bool
+    let action: () -> Void
+    
+    @EnvironmentObject private var theme: ThemeStore
+    
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Image(systemName: specialty.icon)
+                    .font(.system(size: 24))
+                    .foregroundColor(isSelected ? .white : theme.accentPrimary)
+                
+                Text(specialty.rawValue.capitalized)
+                    .font(theme.font(13, weight: .medium))
+                    .foregroundColor(isSelected ? .white : .primary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .background(isSelected ? theme.accentPrimary : Color(.systemGray6))
+            .cornerRadius(12)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+struct StyleOption: View {
+    let style: CoachingStyle
+    let isSelected: Bool
+    let action: () -> Void
+    
+    @EnvironmentObject private var theme: ThemeStore
+    
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .stroke(isSelected ? theme.accentPrimary : Color(.systemGray4), lineWidth: 2)
+                        .frame(width: 24, height: 24)
+                    
+                    if isSelected {
+                        Circle()
+                            .fill(theme.accentPrimary)
+                            .frame(width: 12, height: 12)
+                    }
+                }
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(style.displayName)
+                        .font(theme.font(15, weight: .semibold))
+                        .foregroundColor(.primary)
+                    
+                    Text(style.description)
+                        .font(theme.font(13))
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+            }
+            .padding(12)
+            .background(isSelected ? theme.accentTint : Color(.systemGray6))
+            .cornerRadius(12)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Enums
+
+enum CoachSpecialty: String, CaseIterable {
+    case focus
+    case planning
+    case creativity
+    case decision
+    case wellness
+    case business
+    
+    var icon: String {
+        switch self {
+        case .focus: return "target"
+        case .planning: return "calendar"
+        case .creativity: return "lightbulb.fill"
+        case .decision: return "arrow.triangle.branch"
+        case .wellness: return "leaf.fill"
+        case .business: return "chart.line.uptrend.xyaxis"
+        }
+    }
+}
+
+enum CoachingStyle: String, CaseIterable {
+    case direct
+    case warm
+    case socratic
+    
+    var displayName: String {
+        switch self {
+        case .direct: return "Direct"
+        case .warm: return "Warm & Supportive"
+        case .socratic: return "Socratic"
         }
     }
     
-    private var step4Guardrails: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Set guardrails")
-                    .font(theme.font(28, weight: .bold))
-                
-                Text("Optional rules to guide behavior")
-                    .font(theme.font(15))
-                    .foregroundColor(.secondary)
-            }
-            
-            VStack(spacing: 12) {
-                ForEach(CoachDraft.Guardrail.allCases, id: \.self) { guardrail in
-                    Button(action: { vm.toggleGuardrail(guardrail) }) {
-                        HStack {
-                            Text(guardrail.displayName)
-                                .font(theme.font(15))
-                                .foregroundColor(.primary)
-                            
-                            Spacer()
-                            
-                            Image(systemName: vm.draft.guardrails.contains(guardrail) ? "checkmark.circle.fill" : "circle")
-                                .foregroundColor(vm.draft.guardrails.contains(guardrail) ? theme.accentPrimary : .secondary)
-                                .font(.system(size: 24))
-                        }
-                        .padding(12)
-                        .background(vm.draft.guardrails.contains(guardrail) ? theme.accentTint : Color(.systemGray6))
-                        .cornerRadius(10)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
+    var description: String {
+        switch self {
+        case .direct: return "Clear, actionable guidance"
+        case .warm: return "Encouraging and empathetic"
+        case .socratic: return "Questions that guide discovery"
         }
     }
 }

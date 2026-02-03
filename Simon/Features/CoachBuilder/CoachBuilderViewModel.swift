@@ -1,116 +1,273 @@
-//
-//  CoachBuilderViewModel.swift
-//  Simon
-//
-//  Created on 2026-01-19.
-//
-
 import Foundation
+import SwiftUI
 import Combine
 
 @MainActor
 final class CoachBuilderViewModel: ObservableObject {
-    @Published var draft: CoachDraft
-    @Published var currentStep: Int = 0
-    @Published var isLoading = false
+    // Basic Info
+    @Published var title = ""
+    @Published var promise = ""
+    
+    // Avatar
+    @Published var avatarPrompt = ""
+    @Published var avatarImage: UIImage?
+    @Published var avatarImageData: Data?
+    @Published var isGeneratingAvatar = false
+    
+    // Specialty & Style
+    @Published var selectedSpecialty: CoachSpecialty = .focus
+    @Published var selectedStyle: CoachingStyle = .direct
+    
+    // Advanced
+    @Published var tone: Double = 0.5
+    @Published var customSystemPrompt = ""
+    @Published var showAdvanced = false
+    
+    // State
+    @Published var isCreating = false
+    @Published var showError = false
     @Published var errorMessage: String?
-    @Published var showPaywall = false
     
-    private let apiClient: SimonAPIClient
-    private let isPro: Bool
-    private let onComplete: (Coach) -> Void
+    private let apiClient: SimonAPI
+    private let onCoachCreated: (Coach) -> Void
     
-    let totalSteps = 4
-    
-    init(
-        draft: CoachDraft? = nil,
-        apiClient: SimonAPIClient,
-        isPro: Bool,
-        onComplete: @escaping (Coach) -> Void
-    ) {
-        self.apiClient = apiClient
-        self.isPro = isPro
-        self.onComplete = onComplete
-        self.draft = draft ?? CoachDraft()
+    var canCreate: Bool {
+        !title.isEmpty && !promise.isEmpty && avatarImage != nil
     }
     
-    var canProceed: Bool {
-        switch currentStep {
-        case 0: return !draft.name.isEmpty && !draft.promise.isEmpty
-        case 1: return true // Style always has default
-        case 2: return true // Framework always has default
-        case 3: return true // Guardrails optional
-        default: return false
-        }
-    }
-    
-    var isLastStep: Bool {
-        currentStep == totalSteps - 1
-    }
-    
-    func nextStep() {
-        guard canProceed else { return }
-        if currentStep < totalSteps - 1 {
-            currentStep += 1
-        }
-    }
-    
-    func previousStep() {
-        if currentStep > 0 {
-            currentStep -= 1
-        }
-    }
-    
-    func save() async {
-        guard canProceed else { return }
-        
-        isLoading = true
-        errorMessage = nil
-        
-        do {
-            let coach = try await apiClient.createCoach(draft: draft)
-            isLoading = false
-            onComplete(coach)
-        } catch {
-            isLoading = false
-            errorMessage = error.localizedDescription
-        }
-    }
-    
-    func publish() async {
-        guard isPro else {
-            showPaywall = true
-            return
-        }
-        
-        guard canProceed else { return }
-        
-        isLoading = true
-        errorMessage = nil
-        
-        do {
-            // First create the coach
-            let coach = try await apiClient.createCoach(draft: draft)
-            
-            // Then publish it
-            let publishedCoach = try await apiClient.publishCoach(coachId: coach.id)
-            
-            isLoading = false
-            onComplete(publishedCoach)
-        } catch APIError.proRequired {
-            isLoading = false
-            showPaywall = true
-        } catch {
-            isLoading = false
-            errorMessage = error.localizedDescription
-        }
-    }
-    
-    func toggleGuardrail(_ guardrail: CoachDraft.Guardrail) {
-        if draft.guardrails.contains(guardrail) {
-            draft.guardrails.remove(guardrail)
+    var toneLabel: String {
+        if tone < 0.3 {
+            return "Gentle"
+        } else if tone < 0.7 {
+            return "Balanced"
         } else {
-            draft.guardrails.insert(guardrail)
+            return "Intense"
+        }
+    }
+    
+    init(apiClient: SimonAPI, onCoachCreated: @escaping (Coach) -> Void) {
+        self.apiClient = apiClient
+        self.onCoachCreated = onCoachCreated
+    }
+    
+    func generateAvatar() {
+        guard !avatarPrompt.isEmpty else { return }
+        
+        isGeneratingAvatar = true
+        errorMessage = nil
+        
+        Task {
+            do {
+                let response = try await apiClient.generateCoachAvatar(
+                    prompt: avatarPrompt,
+                    specialty: selectedSpecialty.rawValue,
+                    style: selectedStyle.rawValue
+                )
+                
+                // Decode base64 image
+                if let imageData = Data(base64Encoded: response.imageData),
+                   let image = UIImage(data: imageData) {
+                    avatarImage = image
+                    avatarImageData = imageData
+                    HapticManager.shared.success()
+                } else {
+                    throw NSError(domain: "CoachBuilder", code: -1, userInfo: [
+                        NSLocalizedDescriptionKey: "Failed to decode avatar image"
+                    ])
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+                showError = true
+                HapticManager.shared.error()
+            }
+            
+            isGeneratingAvatar = false
+        }
+    }
+    
+    func createCoach() {
+        guard canCreate else { return }
+        
+        isCreating = true
+        errorMessage = nil
+        
+        Task {
+            do {
+                // Build CoachSpec
+                let coachSpec = buildCoachSpec()
+                
+                // Create coach
+                let coach = try await apiClient.createCoach(
+                    title: title,
+                    promise: promise,
+                    tags: [selectedSpecialty.rawValue],
+                    coachSpec: coachSpec,
+                    avatarData: avatarImageData
+                )
+                
+                HapticManager.shared.success()
+                onCoachCreated(coach)
+                
+            } catch {
+                errorMessage = error.localizedDescription
+                showError = true
+                HapticManager.shared.error()
+            }
+            
+            isCreating = false
+        }
+    }
+    
+    private func buildCoachSpec() -> CoachSpec {
+        let systemPrompt = buildSystemPrompt()
+        
+        return CoachSpec(
+            version: "1.0",
+            identity: Identity(
+                name: title,
+                tagline: promise,
+                niche: selectedSpecialty.rawValue,
+                audience: ["professionals", "individuals"],
+                problemStatements: [promise],
+                outcomes: ["Achieve clarity", "Take action", "Build momentum"],
+                languages: ["en"],
+                persona: Persona(
+                    archetype: selectedStyle.rawValue,
+                    voice: systemPrompt,
+                    boundaries: ["No medical advice", "No legal advice", "No financial advice"]
+                ),
+                samplePrompts: generateSamplePrompts()
+            ),
+            style: Style(
+                tone: selectedStyle.rawValue,
+                verbosity: tone < 0.3 ? "concise" : (tone > 0.7 ? "detailed" : "balanced"),
+                formatting: Formatting(
+                    maxBullets: 5,
+                    maxSentencesPerParagraph: 3,
+                    alwaysEndWith: ["What's your next step?"],
+                    useEmoji: "sparingly",
+                    allowedMarkdown: ["bold", "italic", "lists"]
+                ),
+                interactionRules: InteractionRules(
+                    askOneQuestionAtATime: true,
+                    confirmBeforeScheduling: true,
+                    avoidMotivationalFluff: selectedStyle == .direct,
+                    reflectUserLanguage: true
+                )
+            ),
+            methods: Methods(
+                frameworks: nil,
+                defaultProtocols: DefaultProtocols(
+                    quickNudge: Protocol(template: ["Clarify", "Suggest", "Confirm"], phases: nil),
+                    deepSession: Protocol(template: nil, phases: ["Explore", "Plan", "Commit"])
+                )
+            ),
+            policies: Policies(
+                refusals: Refusals(
+                    medical: true,
+                    legal: true,
+                    financialAdvice: "redirect_to_professional",
+                    selfHarm: "immediate_resources"
+                ),
+                privacy: Privacy(
+                    storeSensitiveMemory: false,
+                    redactPatterns: ["ssn", "credit_card"],
+                    userControls: ["view", "delete", "export"]
+                ),
+                safety: Safety(
+                    noManipulation: true,
+                    noGuilt: true,
+                    noShaming: true
+                )
+            ),
+            toolsAllowed: ToolsAllowed(
+                clientTools: ["calendar", "reminders"],
+                serverTools: ["create_plan", "schedule_checkin"],
+                requiresUserConfirmation: ["schedule_checkin", "create_plan"]
+            ),
+            outputs: Outputs(
+                schemas: OutputSchemas(
+                    plan: SchemaDefinition(type: "object", required: ["title", "steps"], properties: nil),
+                    nextAction: SchemaDefinition(type: "object", required: ["action"], properties: nil),
+                    weeklyReview: SchemaDefinition(type: "object", required: ["wins", "challenges"], properties: nil)
+                ),
+                renderingHints: RenderingHints(
+                    primaryCard: "NextAction",
+                    maxCardsPerResponse: 2
+                )
+            )
+        )
+    }
+    
+    private func buildSystemPrompt() -> String {
+        var prompt = """
+        You are \(title), an AI coach specializing in \(selectedSpecialty.rawValue).
+        
+        Your promise to users: \(promise)
+        
+        Coaching Style: \(selectedStyle.description)
+        Tone: \(toneLabel)
+        
+        Your approach:
+        - Be \(selectedStyle.rawValue) in your communication
+        - Focus on \(selectedSpecialty.rawValue) and related areas
+        - Help users take concrete action
+        - Ask clarifying questions when needed
+        - Offer systems and frameworks when appropriate
+        
+        Remember:
+        - You're a coach, not a therapist or medical professional
+        - Encourage users to seek professional help when appropriate
+        - Respect user context and preferences
+        - Keep responses focused and actionable
+        """
+        
+        // Add custom prompt if provided
+        if !customSystemPrompt.isEmpty {
+            prompt += "\n\nAdditional Instructions:\n\(customSystemPrompt)"
+        }
+        
+        return prompt
+    }
+    
+    private func generateSamplePrompts() -> [String] {
+        switch selectedSpecialty {
+        case .focus:
+            return [
+                "I'm feeling stuck on a project",
+                "Help me prioritize my tasks",
+                "I keep getting distracted"
+            ]
+        case .planning:
+            return [
+                "Help me plan my week",
+                "I need to organize my goals",
+                "Create a review system for me"
+            ]
+        case .creativity:
+            return [
+                "I'm experiencing creative block",
+                "Help me brainstorm ideas",
+                "How do I ship more work?"
+            ]
+        case .decision:
+            return [
+                "I'm stuck between two options",
+                "Help me make this decision",
+                "What framework should I use?"
+            ]
+        case .wellness:
+            return [
+                "Help me build better habits",
+                "I need a wellness routine",
+                "How do I manage stress?"
+            ]
+        case .business:
+            return [
+                "Help me with my business strategy",
+                "I need to make a business decision",
+                "How do I grow my business?"
+            ]
         }
     }
 }

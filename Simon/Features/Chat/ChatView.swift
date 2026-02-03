@@ -141,10 +141,23 @@ struct ChatView: View {
                             
                             // Display cards after messages
                             
-                            // Tool approval card (inline, not sheet)
+                            // Tool request history (approved/declined items)
+                            ForEach(viewModel.toolRequestHistory.filter { $0.status != .pending }) { historyItem in
+                                ToolApprovalCard(
+                                    toolRequest: historyItem.toolRequest,
+                                    status: historyItem.status,
+                                    onApprove: nil,
+                                    onDecline: nil
+                                )
+                                .padding(.top, 8)
+                                .id(historyItem.id)
+                            }
+                            
+                            // Current pending tool approval card (interactive)
                             if let toolRequest = viewModel.toolRequest {
                                 ToolApprovalCard(
                                     toolRequest: toolRequest,
+                                    status: .pending,
                                     onApprove: {
                                         Task {
                                             await viewModel.approveToolExecution()
@@ -517,8 +530,9 @@ struct AttachmentPreviewView: View {
 // MARK: - Tool Approval Card (Inline)
 struct ToolApprovalCard: View {
     let toolRequest: ToolRequestPayload
-    let onApprove: () -> Void
-    let onDecline: () -> Void
+    let status: ChatViewModel.ToolRequestHistory.ToolApprovalStatus
+    let onApprove: (() -> Void)?
+    let onDecline: (() -> Void)?
     
     @EnvironmentObject private var theme: ThemeStore
     @State private var isExecuting = false
@@ -529,64 +543,118 @@ struct ToolApprovalCard: View {
             HStack {
                 Image(systemName: toolIcon)
                     .font(.system(size: 24))
-                    .foregroundColor(theme.accentPrimary)
+                    .foregroundColor(statusColor)
                 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(toolTitle)
                         .font(theme.font(17, weight: .semibold))
-                    Text("Requires your approval")
+                    Text(statusText)
                         .font(theme.font(13))
-                        .foregroundColor(.secondary)
+                        .foregroundColor(statusColor)
                 }
                 
                 Spacer()
+                
+                // Status badge
+                if status != .pending {
+                    HStack(spacing: 4) {
+                        Image(systemName: status == .approved ? "checkmark.circle.fill" : "xmark.circle.fill")
+                            .font(.system(size: 16))
+                        Text(status == .approved ? "Approved" : "Declined")
+                            .font(theme.font(13, weight: .semibold))
+                    }
+                    .foregroundColor(statusColor)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(statusColor.opacity(0.1))
+                    .cornerRadius(8)
+                }
             }
             
             // Preview
             toolPreview
             
-            // Action Buttons
-            HStack(spacing: 12) {
-                Button(action: {
-                    onDecline()
-                }) {
-                    Text("Decline")
-                        .font(theme.font(15, weight: .medium))
+            // Action Buttons (only for pending)
+            if status == .pending, let onApprove = onApprove, let onDecline = onDecline {
+                HStack(spacing: 12) {
+                    Button(action: {
+                        onDecline()
+                    }) {
+                        Text("Decline")
+                            .font(theme.font(15, weight: .medium))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(Color(.systemGray5))
+                            .foregroundColor(.primary)
+                            .cornerRadius(10)
+                    }
+                    .disabled(isExecuting)
+                    
+                    Button(action: {
+                        isExecuting = true
+                        onApprove()
+                        // Note: isExecuting will be reset when toolRequest becomes nil
+                    }) {
+                        HStack {
+                            if isExecuting {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            } else {
+                                Text("Approve")
+                                    .font(theme.font(15, weight: .semibold))
+                            }
+                        }
                         .frame(maxWidth: .infinity)
                         .frame(height: 44)
-                        .background(Color(.systemGray5))
-                        .foregroundColor(.primary)
+                        .background(theme.accentPrimary)
+                        .foregroundColor(.white)
                         .cornerRadius(10)
-                }
-                .disabled(isExecuting)
-                
-                Button(action: {
-                    isExecuting = true
-                    onApprove()
-                    // Note: isExecuting will be reset when toolRequest becomes nil
-                }) {
-                    HStack {
-                        if isExecuting {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                        } else {
-                            Text("Approve")
-                                .font(theme.font(15, weight: .semibold))
-                        }
                     }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 44)
-                    .background(theme.accentPrimary)
-                    .foregroundColor(.white)
-                    .cornerRadius(10)
+                    .disabled(isExecuting)
                 }
-                .disabled(isExecuting)
             }
         }
         .padding(16)
         .background(Color(.systemBackground))
         .cornerRadius(16)
         .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: 2)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(statusBorderColor, lineWidth: status == .pending ? 0 : 2)
+        )
+    }
+    
+    private var statusColor: Color {
+        switch status {
+        case .pending:
+            return theme.accentPrimary
+        case .approved:
+            return .green
+        case .declined:
+            return .red
+        }
+    }
+    
+    private var statusBorderColor: Color {
+        switch status {
+        case .pending:
+            return .clear
+        case .approved:
+            return .green.opacity(0.3)
+        case .declined:
+            return .red.opacity(0.3)
+        }
+    }
+    
+    private var statusText: String {
+        switch status {
+        case .pending:
+            return "Requires your approval"
+        case .approved:
+            return "Completed successfully"
+        case .declined:
+            return "You declined this action"
+        }
     }
         
     private var toolIcon: String {

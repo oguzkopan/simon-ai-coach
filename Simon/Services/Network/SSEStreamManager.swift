@@ -336,70 +336,69 @@ class SSEStreamManager {
                     var currentEvent: String?
                     var currentData: String?
                     var currentID: String?
-                    var buffer = ""
+                    print("📡 SSE: Starting to read stream (manual buffering)...")
                     
-                    print("📡 SSE: Starting to read stream...")
+                    var buffer = Data()
                     
-                    // Read bytes and manually split on newlines to preserve empty lines
+                    // Manual byte iteration to ensure we capture everything and handle UTF-8 boundaries correctly
                     for try await byte in bytes {
-                        let char = String(bytes: [byte], encoding: .utf8) ?? ""
+                        buffer.append(byte)
                         
-                        if char == "\n" {
-                            let line = buffer
-                            buffer = ""
-                            
-                            print("📡 SSE: Received line: \(line.isEmpty ? "<empty>" : line)")
-                            
-                            if line.isEmpty {
-                                // Event complete - parse and emit
-                                if let eventType = currentEvent, let data = currentData {
-                                    print("📡 SSE: Parsing event - type: \(eventType), data length: \(data.count)")
-                                    do {
-                                        let event = try self.parseEvent(type: eventType, data: data, id: currentID)
-                                        print("📡 SSE: Yielding event: \(eventType)")
-                                        continuation.yield(event)
-                                        
-                                        // Close stream on completion or error
-                                        if case .streamDone = event {
-                                            print("📡 SSE: Stream done, finishing")
-                                            continuation.finish()
-                                            return
-                                        } else if case .error = event {
-                                            print("📡 SSE: Error event, finishing")
-                                            continuation.finish()
-                                            return
-                                        }
-                                    } catch {
-                                        print("❌ SSE: Error parsing event: \(error)")
-                                    }
-                                }
+                        // Check for newline (LF = 10)
+                        if byte == 10 {
+                            // Valid line ending found, attempt to decode
+                            if let line = String(data: buffer, encoding: .utf8) {
+                                let trimmedLine = line.trimmingCharacters(in: .newlines)
+                                // print("📡 SSE: Read line: '\(trimmedLine)'")
                                 
-                                // Reset for next event
-                                currentEvent = nil
-                                currentData = nil
-                                currentID = nil
-                            } else if line.hasPrefix("id:") {
-                                currentID = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
-                                print("📡 SSE: Event ID: \(currentID ?? "nil")")
-                            } else if line.hasPrefix("event:") {
-                                currentEvent = String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces)
-                                print("📡 SSE: Event type: \(currentEvent ?? "nil")")
-                            } else if line.hasPrefix("data:") {
-                                let dataLine = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
-                                if currentData == nil {
-                                    currentData = dataLine
-                                } else {
-                                    currentData! += "\n" + dataLine
+                                if trimmedLine.isEmpty {
+                                    // Empty line indicates end of an event block
+                                    if let eventType = currentEvent {
+                                        let data = currentData ?? ""
+                                        print("📡 SSE: Parsing event - type: \(eventType)")
+                                        
+                                        do {
+                                            let event = try self.parseEvent(type: eventType, data: data, id: currentID)
+                                            continuation.yield(event)
+                                            
+                                            // Close stream on completion or error
+                                            if case .streamDone = event {
+                                                print("📡 SSE: Stream done, finishing")
+                                                continuation.finish()
+                                                return
+                                            } else if case .error = event {
+                                                print("📡 SSE: Error event, finishing")
+                                                continuation.finish()
+                                                return
+                                            }
+                                        } catch {
+                                            print("❌ SSE: Error parsing event: \(error)")
+                                        }
+                                    }
+                                    
+                                    // Reset for next event
+                                    currentEvent = nil
+                                    currentData = nil
+                                    currentID = nil
+                                    
+                                } else if trimmedLine.hasPrefix("data:") {
+                                    let dataStr = String(trimmedLine.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+                                    if currentData == nil {
+                                        currentData = dataStr
+                                    } else {
+                                        currentData! += "\n" + dataStr
+                                    }
+                                } else if trimmedLine.hasPrefix("event:") {
+                                    currentEvent = String(trimmedLine.dropFirst(6)).trimmingCharacters(in: .whitespaces)
+                                } else if trimmedLine.hasPrefix("id:") {
+                                    currentID = String(trimmedLine.dropFirst(3)).trimmingCharacters(in: .whitespaces)
                                 }
-                                print("📡 SSE: Data line added")
-                            } else if line.hasPrefix(":") {
-                                // Comment (keep-alive), ignore
-                                print("📡 SSE: Keep-alive comment")
-                            } else if !line.isEmpty {
-                                print("⚠️ SSE: Unknown line format: \(line)")
+                            } else {
+                                print("⚠️ SSE: Failed to decode UTF-8 line from buffer")
                             }
-                        } else {
-                            buffer += char
+                            
+                            // clear buffer for next line
+                            buffer.removeAll()
                         }
                     }
                     

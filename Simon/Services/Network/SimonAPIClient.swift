@@ -15,10 +15,17 @@ struct UserContextData: Codable {
     var currentProjects: [String]
 }
 
+struct AvatarGenerationResponse: Codable {
+    let imageData: String // Base64 encoded
+    let mimeType: String
+}
+
 protocol SimonAPI {
     func listCoaches(tag: String?, featured: Bool?) async throws -> [Coach]
     func getCoach(id: String) async throws -> Coach
     func createCoach(draft: CoachDraft) async throws -> Coach
+    func createCoach(title: String, promise: String, tags: [String], coachSpec: CoachSpec?, avatarData: Data?) async throws -> Coach
+    func generateCoachAvatar(prompt: String, specialty: String, style: String) async throws -> AvatarGenerationResponse
     func forkCoach(coachId: String) async throws -> Coach
     func publishCoach(coachId: String) async throws -> Coach
     func createSession(coachID: String?) async throws -> Session
@@ -117,7 +124,18 @@ final class SimonAPIClient: SimonAPI {
         
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode([Coach].self, from: data)
+        let coaches = try decoder.decode([Coach].self, from: data)
+        
+        // Debug: Print avatar URLs
+        for coach in coaches {
+            if let avatarUrl = coach.avatarUrl {
+                print("✅ Coach '\(coach.title)' has avatar: \(avatarUrl)")
+            } else {
+                print("⚠️ Coach '\(coach.title)' has NO avatar URL")
+            }
+        }
+        
+        return coaches
     }
     
     func getCoach(id: String) async throws -> Coach {
@@ -168,6 +186,76 @@ final class SimonAPIClient: SimonAPI {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(Coach.self, from: data)
+    }
+    
+    func createCoach(title: String, promise: String, tags: [String], coachSpec: CoachSpec?, avatarData: Data?) async throws -> Coach {
+        var request = URLRequest(url: baseURL.appendingPathComponent("/v1/coaches"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try await addAuthHeader(to: &request)
+        
+        var body: [String: Any] = [
+            "title": title,
+            "promise": promise,
+            "tags": tags
+        ]
+        
+        if let coachSpec = coachSpec {
+            let encoder = JSONEncoder()
+            if let specData = try? encoder.encode(coachSpec),
+               let specDict = try? JSONSerialization.jsonObject(with: specData) as? [String: Any] {
+                body["coachSpec"] = specDict
+            }
+        }
+        
+        // TODO: Upload avatar to storage and include URL in body
+        // For now, we'll store the avatar separately or include it in the coach metadata
+        
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        
+        let (data, response) = try await session.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw APIError.httpError(httpResponse.statusCode)
+        }
+        
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(Coach.self, from: data)
+    }
+    
+    func generateCoachAvatar(prompt: String, specialty: String, style: String) async throws -> AvatarGenerationResponse {
+        var request = URLRequest(url: baseURL.appendingPathComponent("/v1/coaches/generate-avatar"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try await addAuthHeader(to: &request)
+        
+        let body: [String: Any] = [
+            "prompt": prompt,
+            "specialty": specialty,
+            "style": style
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        
+        let (data, response) = try await session.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            if httpResponse.statusCode == 429 {
+                throw APIError.rateLimitExceeded
+            }
+            throw APIError.httpError(httpResponse.statusCode)
+        }
+        
+        let decoder = JSONDecoder()
+        return try decoder.decode(AvatarGenerationResponse.self, from: data)
     }
     
     func forkCoach(coachId: String) async throws -> Coach {
@@ -822,6 +910,7 @@ enum APIError: LocalizedError {
     case httpError(Int)
     case decodingError
     case proRequired
+    case rateLimitExceeded
     
     var errorDescription: String? {
         switch self {
@@ -833,6 +922,8 @@ enum APIError: LocalizedError {
             return "Failed to decode response"
         case .proRequired:
             return "Pro subscription required"
+        case .rateLimitExceeded:
+            return "Too many requests. Please wait a moment."
         }
     }
 }

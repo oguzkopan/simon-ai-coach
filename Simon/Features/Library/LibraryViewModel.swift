@@ -119,20 +119,36 @@ final class LibraryViewModel: ObservableObject {
         
         isLoadingProgress = true
         
+        print("🔍 Loading progress documents...")
+        
         do {
-            // Load active plans
-            let plans = try await apiClient.listPlans(status: "active", limit: 5)
-            activePlans = plans
+            // Load active plans - try without status filter first
+            print("📋 Calling listPlans API...")
+            let plans = try await apiClient.listPlans(status: nil, limit: 10)
+            print("✅ Received \(plans.count) plans from API")
+            
+            // Filter for active plans on client side
+            activePlans = plans.filter { $0.status == .active }
+            print("📊 Filtered to \(activePlans.count) active plans")
+            
+            if !activePlans.isEmpty {
+                for (index, plan) in activePlans.enumerated() {
+                    print("  Plan \(index + 1): \(plan.title) (status: \(plan.status.rawValue), uid: \(plan.uid))")
+                }
+            } else {
+                print("⚠️ No active plans found")
+            }
             
             // TODO: Add check-ins API endpoint
             recentCheckins = []
-            
-            print("✅ Loaded progress: plans=\(activePlans.count), checkins=\(recentCheckins.count)")
             
             hasLoadedProgress = true
             isLoadingProgress = false
         } catch {
             print("❌ Failed to load progress documents: \(error)")
+            if let apiError = error as? APIError {
+                print("❌ API Error details: \(apiError)")
+            }
             hasLoadedProgress = true
             isLoadingProgress = false
         }

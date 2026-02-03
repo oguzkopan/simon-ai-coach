@@ -45,6 +45,21 @@ final class ChatViewModel: ObservableObject {
     @Published var toolRequest: ToolRequestPayload? // Shown inline, not as sheet
     @Published var policyNotice: String?
     
+    // Tool request history with approval status
+    struct ToolRequestHistory: Identifiable {
+        let id: String
+        let toolRequest: ToolRequestPayload
+        var status: ToolApprovalStatus
+        let timestamp: Date
+        
+        enum ToolApprovalStatus {
+            case pending
+            case approved
+            case declined
+        }
+    }
+    @Published var toolRequestHistory: [ToolRequestHistory] = []
+    
     let sessionID: String
     let coachName: String
     let initialPrompt: String?
@@ -305,7 +320,7 @@ final class ChatViewModel: ObservableObject {
     
     private func streamResponse(userText: String, attachments: [Attachment]?) async {
         
-        var assistantText = ""
+        var assistantText = "" 
         let assistantID = UUID().uuidString
         
         // Add placeholder assistant message
@@ -319,9 +334,7 @@ final class ChatViewModel: ObservableObject {
             )
             messages.append(placeholderMessage)
         }
-        
-        // ... (rest of the streaming logic, wrapped in await MainActor.run where needed for UI updates)
-            
+
         
         do {
             print("🚀 Starting chat stream for session: \(sessionID)")
@@ -341,13 +354,39 @@ final class ChatViewModel: ObservableObject {
                         
                     case .messageDelta(let payload):
                         print("📝 Message delta: \(payload.delta)")
-                        assistantText += payload.delta
+                        // Update UI immediately (direct pass, no buffer)
+                        await MainActor.run {
+                            assistantText += payload.delta
+                            if let index = messages.firstIndex(where: { $0.id == assistantID }) {
+                                messages[index] = Message(
+                                    id: assistantID,
+                                    role: "assistant",
+                                    contentText: assistantText,
+                                    attachments: nil,
+                                    createdAt: Date()
+                                )
+                            }
+                        }
                         
-                            // Update the last message
-                            await MainActor.run {
+                    case .messageFinal(let payload):
+                        print("✅ Message final: \(payload.text.prefix(50))...")
+                        let finalID = payload.messageId // Capture for local scope
+
+                        // Ensure we show the final text exactly as received
+                        await MainActor.run {
+                            assistantText = payload.text // Sync buffer
+                            
+                            // Also handle the edge case where function calls produce empty text
+                            if payload.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                // If function call only, remove the placeholder
+                                if let index = messages.firstIndex(where: { $0.id == assistantID }) {
+                                    messages.remove(at: index)
+                                }
+                            } else {
+                                // Final sync with real ID
                                 if let index = messages.firstIndex(where: { $0.id == assistantID }) {
                                     messages[index] = Message(
-                                        id: assistantID,
+                                        id: finalID,
                                         role: "assistant",
                                         contentText: assistantText,
                                         attachments: nil,
@@ -355,61 +394,49 @@ final class ChatViewModel: ObservableObject {
                                     )
                                 }
                             }
-                        
-                    case .messageFinal(let payload):
-                        print("✅ Message final: \(payload.text.prefix(50))...")
-                        // Update with final text
-                        await MainActor.run {
-                            if let index = messages.firstIndex(where: { $0.id == assistantID }) {
-                                // Only add message if it has text content
-                                // When function calling happens without text, we skip the message
-                                if !payload.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                    messages[index] = Message(
-                                        id: payload.messageId,
-                                        role: payload.role,
-                                        contentText: payload.text,
-                                        attachments: nil,
-                                        createdAt: Date()
-                                    )
-                                } else {
-                                    // Remove placeholder if message is empty (function call only)
-                                    messages.remove(at: index)
-                                    print("🗑️ Removed empty assistant message (function call only)")
-                                }
-                            }
                         }
                         
                     case .cardNextActions(let payload):
                         print("🎴 Next actions card received")
-                        nextActionsCard = payload
+                        await MainActor.run { nextActionsCard = payload }
                         
                     case .cardPlan(let payload):
                         print("🎴 Plan card received")
-                        planCard = payload
+                        await MainActor.run { planCard = payload }
                         
                     case .cardWeeklyReview(let payload):
                         print("🎴 Weekly review card received")
-                        weeklyReviewCard = payload
+                        await MainActor.run { weeklyReviewCard = payload }
                         
                     case .toolRequest(let payload):
                         print("🔧 Tool request: \(payload.tool)")
-                        toolRequest = payload
-                        // No longer showing sheet, it's inline in the chat
+                        await MainActor.run {
+                            toolRequest = payload
+                            // Add to history as pending
+                            let historyItem = ToolRequestHistory(
+                                id: UUID().uuidString,
+                                toolRequest: payload,
+                                status: .pending,
+                                timestamp: Date()
+                            )
+                            toolRequestHistory.append(historyItem)
+                        }
                         
                     case .toolStatus(let payload):
                         print("🔧 Tool status: \(payload.status)")
                         
                     case .policyNotice(let payload):
                         print("⚠️ Policy notice: \(payload.message)")
-                        policyNotice = payload.message
+                        await MainActor.run { policyNotice = payload.message }
                         
                     case .error(let payload):
                         print("❌ Error event: \(payload.message)")
-                        // Check if it's a quota error
-                        if payload.message.contains("quota") || payload.message.contains("429") || payload.message.contains("RESOURCE_EXHAUSTED") {
-                            errorMessage = "⏳ API rate limit reached. Please wait a moment and try again."
-                        } else {
-                            errorMessage = payload.message
+                        await MainActor.run {
+                            if payload.message.contains("quota") || payload.message.contains("429") || payload.message.contains("RESOURCE_EXHAUSTED") {
+                                errorMessage = "⏳ API rate limit reached. Please wait a moment and try again."
+                            } else {
+                                errorMessage = payload.message
+                            }
                         }
                         
                     case .streamDone(let payload):
@@ -422,6 +449,7 @@ final class ChatViewModel: ObservableObject {
                 
                 print("🏁 Stream loop completed")
                 
+                // Final cleanup
                 await MainActor.run {
                     isStreaming = false
                 }
@@ -484,6 +512,10 @@ final class ChatViewModel: ObservableObject {
             } catch {
                 print("❌ Failed to reload session context: \(error)")
                 errorMessage = "Failed to load session context. Please try again."
+                // Update history status to declined (failed)
+                if let index = toolRequestHistory.firstIndex(where: { $0.status == .pending }) {
+                    toolRequestHistory[index].status = .declined
+                }
                 self.toolRequest = nil
                 return
             }
@@ -491,6 +523,10 @@ final class ChatViewModel: ObservableObject {
         
         guard let uid = sessionUID, let coachID = sessionCoachID else {
             errorMessage = "Missing session context for tool execution"
+            // Update history status to declined (failed)
+            if let index = toolRequestHistory.firstIndex(where: { $0.status == .pending }) {
+                toolRequestHistory[index].status = .declined
+            }
             self.toolRequest = nil
             return
         }
@@ -513,12 +549,22 @@ final class ChatViewModel: ObservableObject {
                 onConfirm: { true }
             )
             print("✅ Tool execution completed successfully")
+            
+            // Update history status to approved
+            if let index = toolRequestHistory.firstIndex(where: { $0.status == .pending }) {
+                toolRequestHistory[index].status = .approved
+            }
         } catch {
             print("❌ Tool execution failed: \(error)")
             errorMessage = error.localizedDescription
+            
+            // Update history status to declined (failed)
+            if let index = toolRequestHistory.firstIndex(where: { $0.status == .pending }) {
+                toolRequestHistory[index].status = .declined
+            }
         }
         
-        // Clear the tool request to hide the approval card
+        // Clear the current tool request (but keep in history)
         self.toolRequest = nil
     }
     
@@ -543,12 +589,22 @@ final class ChatViewModel: ObservableObject {
                     executionToken: response.executionToken ?? "",
                     status: "declined"
                 )
+                
+                // Update history status to declined
+                if let index = toolRequestHistory.firstIndex(where: { $0.status == .pending }) {
+                    toolRequestHistory[index].status = .declined
+                }
             } catch {
                 errorMessage = error.localizedDescription
+                
+                // Still update history status to declined
+                if let index = toolRequestHistory.firstIndex(where: { $0.status == .pending }) {
+                    toolRequestHistory[index].status = .declined
+                }
             }
         }
         
-        // Clear the tool request to hide the approval card
+        // Clear the current tool request (but keep in history)
         self.toolRequest = nil
     }
     

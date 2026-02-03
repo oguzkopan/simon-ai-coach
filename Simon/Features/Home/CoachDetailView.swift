@@ -24,8 +24,31 @@ struct CoachDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                // Header Section
-                VStack(alignment: .center, spacing: 12) {
+                // Header Section with Avatar
+                VStack(alignment: .center, spacing: 16) {
+                    // Avatar
+                    if let avatarUrl = coach.avatarUrl, !avatarUrl.isEmpty, let url = URL(string: avatarUrl) {
+                        CachedAsyncImage(url: url) { image in
+                            image
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 80, height: 80)
+                                .clipShape(Circle())
+                        } placeholder: {
+                            // Show shimmer/loading placeholder while avatar loads
+                            Circle()
+                                .fill(Color(.systemGray5))
+                                .frame(width: 80, height: 80)
+                                .overlay {
+                                    ProgressView()
+                                        .tint(theme.accentPrimary)
+                                }
+                        }
+                    } else {
+                        // Only show icon if there's NO avatar URL
+                        avatarPlaceholder
+                    }
+                    
                     Text("AI COACH")
                         .font(theme.font(12, weight: .semibold))
                         .foregroundColor(.secondary)
@@ -48,7 +71,7 @@ struct CoachDetailView: View {
                         .padding(.horizontal, 20)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 20)
+                .padding(.vertical, 24)
                 .background(Color(.systemGray6))
                 .cornerRadius(20)
                 .padding(.horizontal, 20)
@@ -298,6 +321,60 @@ struct CoachDetailView: View {
         // Store the prompt and start session
         pendingPrompt = prompt
         startSession()
+    }
+    
+    private var avatarPlaceholder: some View {
+        ZStack {
+            Circle()
+                .fill(getIconColor(for: coach.tags.first ?? ""))
+                .frame(width: 80, height: 80)
+            
+            Image(systemName: getIconName(for: coach.tags.first ?? ""))
+                .font(.system(size: 36, weight: .semibold))
+                .foregroundColor(.white)
+        }
+    }
+    
+    private func getIconColor(for tag: String) -> Color {
+        switch tag.lowercased() {
+        case "focus", "productivity":
+            return Color(hex: "00C7BE") // Teal
+        case "planning", "strategy":
+            return Color(hex: "FF9500") // Orange
+        case "creativity", "creative":
+            return Color(hex: "AF52DE") // Purple
+        case "business":
+            return Color(hex: "5856D6") // Indigo
+        case "wellness", "health", "habits":
+            return Color(hex: "00C7BE") // Mint
+        case "decision":
+            return Color(hex: "FF2D55") // Rose
+        case "confidence", "mindset":
+            return Color(hex: "5856D6") // Indigo
+        default:
+            return Color(hex: "5856D6") // Default indigo
+        }
+    }
+    
+    private func getIconName(for tag: String) -> String {
+        switch tag.lowercased() {
+        case "focus", "productivity":
+            return "target"
+        case "planning", "strategy":
+            return "calendar"
+        case "creativity", "creative":
+            return "lightbulb.fill"
+        case "business":
+            return "chart.line.uptrend.xyaxis"
+        case "wellness", "health", "habits":
+            return "leaf.fill"
+        case "decision":
+            return "arrow.triangle.branch"
+        case "confidence", "mindset":
+            return "star.fill"
+        default:
+            return "star.fill"
+        }
     }
 }
 

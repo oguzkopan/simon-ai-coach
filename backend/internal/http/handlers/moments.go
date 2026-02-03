@@ -13,6 +13,7 @@ import (
 	"simon-backend/internal/gemini"
 	"simon-backend/internal/http/middleware"
 	"simon-backend/internal/models"
+	"simon-backend/internal/orchestrator"
 )
 
 type startMomentRequest struct {
@@ -102,6 +103,72 @@ func StartMoment(fs *firestore.Client, gm *gemini.Client, cfg config.Config) gin
 			return
 		}
 
+		// Generate initial AI response using the orchestrator pipeline
+		// This ensures the user gets an immediate response when using quick templates
+		pipeline := orchestrator.NewPipeline(fs, gm)
+		
+		// Get coachID as string (handle pointer)
+		coachIDStr := ""
+		if routeResult.CoachID != nil {
+			coachIDStr = *routeResult.CoachID
+		}
+		
+		// Execute pipeline to generate the first response
+		output, err := pipeline.Execute(ctx, orchestrator.PipelineInput{
+			SessionID:   sessionID,
+			CoachID:     coachIDStr,
+			UserMessage: req.Prompt,
+			Attachments: nil,
+			UID:         uid,
+		})
+		
+		if err != nil {
+			c.Error(fmt.Errorf("failed to generate initial response: %w", err))
+			// Don't fail the request - session is created, user can retry in chat
+			c.JSON(http.StatusOK, startMomentResponse{
+				SessionID:    sessionID,
+				CoachID:      routeResult.CoachID,
+				CoachName:    routeResult.CoachName,
+				FirstMessage: nil,
+			})
+			return
+		}
+		
+		// Collect the AI response from the stream
+		var assistantText string
+		var assistantMessageID string
+		
+		// Drain the stream to get the complete response
+		for event := range output.Stream {
+			if event.Type == "message.delta" {
+				if delta, ok := event.Data["delta"].(string); ok {
+					assistantText += delta
+				}
+			} else if event.Type == "message.final" {
+				if msgID, ok := event.Data["message_id"].(string); ok {
+					assistantMessageID = msgID
+				}
+				if text, ok := event.Data["text"].(string); ok {
+					assistantText = text
+				}
+			}
+		}
+		
+		// Save the assistant's response to Firestore
+		if assistantText != "" && assistantMessageID != "" {
+			assistantMessage := models.Message{
+				ID:          assistantMessageID,
+				Role:        "assistant",
+				ContentText: assistantText,
+				CreatedAt:   models.Now(),
+			}
+			
+			if err := fs.AddMessage(ctx, sessionID, assistantMessage); err != nil {
+				c.Error(fmt.Errorf("failed to save assistant message: %w", err))
+				// Don't fail - the response was generated, just not saved
+			}
+		}
+
 		// Increment moment count if not Pro
 		if !isPro {
 			if err := incrementMomentCount(ctx, fs, uid); err != nil {
@@ -110,12 +177,12 @@ func StartMoment(fs *firestore.Client, gm *gemini.Client, cfg config.Config) gin
 			}
 		}
 
-		// Return response
+		// Return response with the first message
 		response := startMomentResponse{
 			SessionID:    sessionID,
 			CoachID:      routeResult.CoachID,
 			CoachName:    routeResult.CoachName,
-			FirstMessage: routeResult.FirstMessage,
+			FirstMessage: &assistantText,
 		}
 
 		c.JSON(http.StatusOK, response)

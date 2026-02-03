@@ -501,6 +501,8 @@ final class EventsViewModel: ObservableObject {
                 errorMessage = "Unable to process server response."
             case .proRequired:
                 errorMessage = "Pro subscription required for this feature."
+            case .rateLimitExceeded:
+                errorMessage = "Too many requests. Please wait a moment and try again."
             }
         } else {
             errorMessage = "Failed to \(context). Please check your connection and try again."

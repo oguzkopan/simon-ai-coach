@@ -53,16 +53,37 @@ class PlanViewModel: ObservableObject {
         do {
             try await apiClient.updatePlan(
                 id: planId,
-                updates: ["next_actions": plan.nextActions.map { action in
-                    [
+                updates: ["next_actions": plan.nextActions.map { action -> [String: Any] in
+                    var dict: [String: Any] = [
                         "id": action.id,
                         "title": action.title,
-                        "duration_min": action.durationMin as Any,
-                        "energy": action.energy?.rawValue as Any,
-                        "when": action.when as Any,
-                        "status": action.status.rawValue,
-                        "completed_at": action.completedAt?.ISO8601Format() as Any
+                        "status": action.status.rawValue
                     ]
+                    
+                    if let duration = action.durationMin {
+                        dict["duration_min"] = duration
+                    }
+                    
+                    if let energy = action.energy {
+                        dict["energy"] = energy.rawValue
+                    }
+                    
+                    if let when = action.when {
+                        var whenDict: [String: Any] = ["kind": when.kind.rawValue]
+                        if let startISO = when.startISO {
+                            whenDict["start_iso"] = startISO.ISO8601Format()
+                        }
+                        if let endISO = when.endISO {
+                            whenDict["end_iso"] = endISO.ISO8601Format()
+                        }
+                        dict["when"] = whenDict
+                    }
+                    
+                    if let completedAt = action.completedAt {
+                        dict["completed_at"] = completedAt.ISO8601Format()
+                    }
+                    
+                    return dict
                 }]
             )
         } catch {
@@ -105,14 +126,22 @@ class PlanViewModel: ObservableObject {
         do {
             try await apiClient.updatePlan(
                 id: planId,
-                updates: ["milestones": plan.milestones.map { milestone in
-                    [
+                updates: ["milestones": plan.milestones.map { milestone -> [String: Any] in
+                    var dict: [String: Any] = [
                         "id": milestone.id,
                         "title": milestone.title,
-                        "description": milestone.description as Any,
-                        "due_date": milestone.dueDate?.ISO8601Format() as Any,
                         "status": milestone.status.rawValue
                     ]
+                    
+                    if let description = milestone.description {
+                        dict["description"] = description
+                    }
+                    
+                    if let dueDate = milestone.dueDate {
+                        dict["due_date"] = dueDate.ISO8601Format()
+                    }
+                    
+                    return dict
                 }]
             )
         } catch {
@@ -192,10 +221,17 @@ extension SimonAPIClient {
         let body = ["updates": updates]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         
-        let (_, response) = try await URLSession.shared.data(for: request)
+        print("📤 Updating plan \(id) with body: \(String(data: request.httpBody ?? Data(), encoding: .utf8) ?? "nil")")
         
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        
+        if !(200...299).contains(httpResponse.statusCode) {
+            let errorBody = String(data: data, encoding: .utf8) ?? "No error body"
+            print("❌ Update plan failed with status \(httpResponse.statusCode): \(errorBody)")
             throw APIError.invalidResponse
         }
     }

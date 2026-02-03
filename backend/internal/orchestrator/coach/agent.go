@@ -680,12 +680,18 @@ func (ca *CoachAgent) buildToolSchemas(spec *models.CoachSpec) []*genai.Tool {
 		})
 	}
 
-	// Return as Tool array
-	if len(declarations) == 0 {
-		return nil
+	// Build final tool set
+	var tools []*genai.Tool
+
+	// Add function declarations if any
+	if len(declarations) > 0 {
+		tools = append(tools, &genai.Tool{FunctionDeclarations: declarations})
 	}
 
-	return []*genai.Tool{{FunctionDeclarations: declarations}}
+	// ALWAYS add Google Search grounding
+	tools = append(tools, &genai.Tool{GoogleSearch: &genai.GoogleSearch{}})
+
+	return tools
 }
 
 // transformToolPayload transforms Gemini function call format to tool registry format

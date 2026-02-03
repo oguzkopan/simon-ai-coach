@@ -3,6 +3,7 @@ import SwiftUI
 struct HomeView: View {
     @StateObject private var viewModel: HomeViewModel
     @EnvironmentObject private var theme: ThemeStore
+    @State private var showCoachBuilder = false
     let onCoachTap: ((Coach) -> Void)?
     
     init(viewModel: HomeViewModel, onCoachTap: ((Coach) -> Void)? = nil) {
@@ -13,6 +14,21 @@ struct HomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                // Header with Create Button
+                HStack {
+                    Text("Coaches")
+                        .font(theme.font(28, weight: .bold))
+                    
+                    Spacer()
+                    
+                    Button(action: { showCoachBuilder = true }) {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 28))
+                            .foregroundColor(theme.accentPrimary)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
                 // Filter chips
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
@@ -93,6 +109,17 @@ struct HomeView: View {
                 await viewModel.loadCoaches()
             }
         }
+        .sheet(isPresented: $showCoachBuilder) {
+            CoachBuilderView(
+                viewModel: CoachBuilderViewModel(
+                    apiClient: viewModel.apiClient,
+                    onCoachCreated: { coach in
+                        showCoachBuilder = false
+                        viewModel.handleCoachCreated(coach)
+                    }
+                )
+            )
+        }
         .onAppear {
             AnalyticsManager.shared.logScreenView("home", screenClass: "HomeView")
         }
@@ -129,15 +156,27 @@ struct CoachCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 16) {
-                // Icon with colored background
-                ZStack {
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(getIconColor(for: coach.tags.first ?? ""))
-                        .frame(width: 56, height: 56)
-                    
-                    Image(systemName: getIconName(for: coach.tags.first ?? ""))
-                        .font(.system(size: 24, weight: .semibold))
-                        .foregroundColor(.white)
+                // Avatar or Icon with colored background
+                if let avatarUrl = coach.avatarUrl, !avatarUrl.isEmpty, let url = URL(string: avatarUrl) {
+                    CachedAsyncImage(url: url) { image in
+                        image
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 56, height: 56)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                    } placeholder: {
+                        // Show shimmer/loading placeholder while avatar loads
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(Color(.systemGray5))
+                            .frame(width: 56, height: 56)
+                            .overlay {
+                                ProgressView()
+                                    .tint(theme.accentPrimary)
+                            }
+                    }
+                } else {
+                    // Only show icon if there's NO avatar URL
+                    iconPlaceholder
                 }
                 
                 VStack(alignment: .leading, spacing: 8) {
@@ -182,6 +221,18 @@ struct CoachCard: View {
         .background(Color(.systemBackground))
         .cornerRadius(20)
         .shadow(color: Color.black.opacity(0.05), radius: 10, x: 0, y: 4)
+    }
+    
+    private var iconPlaceholder: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 16)
+                .fill(getIconColor(for: coach.tags.first ?? ""))
+                .frame(width: 56, height: 56)
+            
+            Image(systemName: getIconName(for: coach.tags.first ?? ""))
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundColor(.white)
+        }
     }
     
     private func getIconColor(for tag: String) -> Color {
