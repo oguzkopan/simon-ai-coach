@@ -47,7 +47,7 @@ func (c *Client) Close() error {
 }
 
 // GenerateContentStreamWithHistory streams content using Gemini with conversation history
-func (c *Client) GenerateContentStreamWithHistory(ctx context.Context, systemPrompt string, history []interface{}, currentMessage string) (<-chan string, <-chan error) {
+func (c *Client) GenerateContentStreamWithHistory(ctx context.Context, systemPrompt string, history []interface{}, currentParts []*genai.Part) (<-chan string, <-chan error) {
 	tokens := make(chan string, 100)
 	errors := make(chan error, 1)
 
@@ -95,10 +95,10 @@ func (c *Client) GenerateContentStreamWithHistory(ctx context.Context, systemPro
 			}
 		}
 		
-		// Add current user message
+		// Add current user message parts
 		contents = append(contents, &genai.Content{
 			Role:  "user",
-			Parts: []*genai.Part{{Text: currentMessage}},
+			Parts: currentParts,
 		})
 
 		// Stream responses using the modern API pattern
@@ -143,7 +143,7 @@ func (c *Client) GenerateContentStreamWithTools(
 	ctx context.Context,
 	systemPrompt string,
 	history []interface{},
-	currentMessage string,
+	currentParts []*genai.Part,
 	tools []*genai.Tool,
 ) (<-chan ToolCallOrText, <-chan error) {
 	results := make(chan ToolCallOrText, 100)
@@ -194,10 +194,10 @@ func (c *Client) GenerateContentStreamWithTools(
 			}
 		}
 		
-		// Add current user message
+		// Add current user message parts
 		contents = append(contents, &genai.Content{
 			Role:  "user",
-			Parts: []*genai.Part{{Text: currentMessage}},
+			Parts: currentParts,
 		})
 
 		// Stream responses

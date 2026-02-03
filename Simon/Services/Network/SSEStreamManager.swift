@@ -285,7 +285,7 @@ class SSEStreamManager {
             Task {
                 do {
                     print("📡 SSE: Connecting to \(url)")
-                    print("📡 SSE: Request message: \(request.message)")
+                    print("📡 SSE: Request message: \(request.userText)")
                     
                     var urlRequest = URLRequest(url: url)
                     urlRequest.httpMethod = "POST"
@@ -421,6 +421,14 @@ class SSEStreamManager {
                         continuation.finish(throwing: error)
                     }
                 } catch {
+                    // Check for Socket is not connected error (Network dropped)
+                    let nsError = error as NSError
+                    if nsError.domain == NSPOSIXErrorDomain && nsError.code == 57 {
+                         print("ℹ️ SSE: Socket disconnected (likely expected or background close)")
+                         continuation.finish()
+                         return
+                    }
+
                     // Handle other errors
                     let sseError = SSEError.networkError(error)
                     if retryCount < self.maxRetries {
@@ -519,5 +527,6 @@ class SSEStreamManager {
 // MARK: - Chat Stream Request
 
 struct ChatStreamRequest: Codable {
-    let message: String
+    let userText: String
+    let attachments: [Attachment]? 
 }

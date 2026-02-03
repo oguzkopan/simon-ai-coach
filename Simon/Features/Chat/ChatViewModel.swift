@@ -1,6 +1,9 @@
 import Foundation
 import SwiftUI
 import Combine
+import FirebaseStorage
+import UIKit
+import FirebaseAuth
 
 @MainActor
 final class ChatViewModel: ObservableObject {
@@ -12,6 +15,26 @@ final class ChatViewModel: ObservableObject {
     @Published var showAttachmentPicker = false
     @Published var showPinSheet = false
     @Published var selectedMessageForPin: Message?
+    
+    // Attachment Handling
+    @Published var selectedImage: UIImage? {
+        didSet { if let image = selectedImage { handlePickedImage(image) } }
+    }
+    @Published var selectedFileURL: URL? {
+        didSet { if let url = selectedFileURL { handlePickedDocument(url) } }
+    }
+    
+    struct LocalAttachment: Identifiable {
+        let id = UUID()
+        let type: String // "image" or "file"
+        let data: Data
+        let mimeType: String
+        let fileExtension: String
+        let previewImage: UIImage? // For UI
+    }
+    
+    @Published var localAttachments: [LocalAttachment] = []
+    @Published var isUploading = false
     @Published var shouldShowError = false // Control when to show error UI
     @Published var hasCompletedInitialLoad = false // Track if we've completed the first load
     
@@ -37,6 +60,10 @@ final class ChatViewModel: ObservableObject {
     // Session details for tool execution context
     private var sessionUID: String?
     var sessionCoachID: String? // Made public for analytics
+    
+    func removeAttachment(id: UUID) {
+        localAttachments.removeAll { $0.id == id }
+    }
     
     init(sessionID: String, coachName: String, apiClient: SimonAPI, toolExecutor: ToolExecutor? = nil, initialPrompt: String? = nil, isNewSession: Bool = false) {
         print("🟢 ChatViewModel init - sessionID: \(sessionID), coachName: \(coachName), isNewSession: \(isNewSession)")
@@ -212,23 +239,12 @@ final class ChatViewModel: ObservableObject {
         guard !composerText.isEmpty else { return }
         
         let userText = composerText
+        // Local references to process
+        let attachmentsToProcess = localAttachments
+        
+        // Optimistically clear input
         composerText = ""
-        
-        // Log analytics
-        AnalyticsManager.shared.logMessageSent(
-            coachID: sessionCoachID ?? "unknown",
-            messageLength: userText.count
-        )
-        
-        // Add user message immediately
-        let userMessage = Message(
-            id: UUID().uuidString,
-            role: "user",
-            contentText: userText,
-            attachments: nil,
-            createdAt: Date()
-        )
-        messages.append(userMessage)
+        localAttachments = []
         
         // Clear previous cards
         nextActionsCard = nil
@@ -237,15 +253,63 @@ final class ChatViewModel: ObservableObject {
         toolRequest = nil
         policyNotice = nil
         
-        // Start streaming
-        isStreaming = true
+        // Start processing
+        isStreaming = true // Indicate activity
         errorMessage = nil
         
         streamingTask = Task {
-            var assistantText = ""
-            let assistantID = UUID().uuidString
+            // 1. Upload Attachments
+            var uploadedAttachments: [Attachment] = []
+            if !attachmentsToProcess.isEmpty {
+                isUploading = true
+                do {
+                    uploadedAttachments = try await uploadAllAttachments(attachmentsToProcess)
+                } catch {
+                    // Restore state on failure
+                    await MainActor.run {
+                        self.errorMessage = "Failed to send: \(error.localizedDescription)"
+                        self.composerText = userText
+                        self.localAttachments = attachmentsToProcess
+                        self.isUploading = false
+                        self.isStreaming = false
+                    }
+                    return
+                }
+                isUploading = false
+            }
             
-            // Add placeholder assistant message
+            // 2. Add user message to UI
+            // We use the same Task context so simple property access is safe, but explicit MainActor.run is better for updates
+            await MainActor.run {
+                
+                // Log analytics
+                AnalyticsManager.shared.logMessageSent(
+                    coachID: sessionCoachID ?? "unknown",
+                    messageLength: userText.count
+                )
+                
+                let userMessage = Message(
+                    id: UUID().uuidString,
+                    role: "user",
+                    contentText: userText,
+                    attachments: uploadedAttachments,
+                    createdAt: Date()
+                )
+                messages.append(userMessage)
+            }
+            
+            // 3. Start Streaming
+            await streamResponse(userText: userText, attachments: uploadedAttachments)
+        }
+    }
+    
+    private func streamResponse(userText: String, attachments: [Attachment]?) async {
+        
+        var assistantText = ""
+        let assistantID = UUID().uuidString
+        
+        // Add placeholder assistant message
+        await MainActor.run {
             let placeholderMessage = Message(
                 id: assistantID,
                 role: "assistant",
@@ -254,12 +318,16 @@ final class ChatViewModel: ObservableObject {
                 createdAt: Date()
             )
             messages.append(placeholderMessage)
+        }
+        
+        // ... (rest of the streaming logic, wrapped in await MainActor.run where needed for UI updates)
             
-            do {
-                print("🚀 Starting chat stream for session: \(sessionID)")
-                let stream = apiClient.streamChat(sessionID: sessionID, userText: userText)
-                
-                for try await event in stream {
+        
+        do {
+            print("🚀 Starting chat stream for session: \(sessionID)")
+            let stream = apiClient.streamChat(sessionID: sessionID, userText: userText, attachments: attachments)
+            
+            for try await event in stream {
                     if Task.isCancelled {
                         print("⚠️ Stream task cancelled")
                         break
@@ -275,35 +343,39 @@ final class ChatViewModel: ObservableObject {
                         print("📝 Message delta: \(payload.delta)")
                         assistantText += payload.delta
                         
-                        // Update the last message
-                        if let index = messages.firstIndex(where: { $0.id == assistantID }) {
-                            messages[index] = Message(
-                                id: assistantID,
-                                role: "assistant",
-                                contentText: assistantText,
-                                attachments: nil,
-                                createdAt: Date()
-                            )
-                        }
+                            // Update the last message
+                            await MainActor.run {
+                                if let index = messages.firstIndex(where: { $0.id == assistantID }) {
+                                    messages[index] = Message(
+                                        id: assistantID,
+                                        role: "assistant",
+                                        contentText: assistantText,
+                                        attachments: nil,
+                                        createdAt: Date()
+                                    )
+                                }
+                            }
                         
                     case .messageFinal(let payload):
                         print("✅ Message final: \(payload.text.prefix(50))...")
                         // Update with final text
-                        if let index = messages.firstIndex(where: { $0.id == assistantID }) {
-                            // Only add message if it has text content
-                            // When function calling happens without text, we skip the message
-                            if !payload.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                messages[index] = Message(
-                                    id: payload.messageId,
-                                    role: payload.role,
-                                    contentText: payload.text,
-                                    attachments: nil,
-                                    createdAt: Date()
-                                )
-                            } else {
-                                // Remove placeholder if message is empty (function call only)
-                                messages.remove(at: index)
-                                print("🗑️ Removed empty assistant message (function call only)")
+                        await MainActor.run {
+                            if let index = messages.firstIndex(where: { $0.id == assistantID }) {
+                                // Only add message if it has text content
+                                // When function calling happens without text, we skip the message
+                                if !payload.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                    messages[index] = Message(
+                                        id: payload.messageId,
+                                        role: payload.role,
+                                        contentText: payload.text,
+                                        attachments: nil,
+                                        createdAt: Date()
+                                    )
+                                } else {
+                                    // Remove placeholder if message is empty (function call only)
+                                    messages.remove(at: index)
+                                    print("🗑️ Removed empty assistant message (function call only)")
+                                }
                             }
                         }
                         
@@ -349,14 +421,18 @@ final class ChatViewModel: ObservableObject {
                 }
                 
                 print("🏁 Stream loop completed")
+                
+                await MainActor.run {
+                    isStreaming = false
+                }
             } catch {
-                print("❌ Stream error: \(error)")
+            print("❌ Stream error: \(error)")
+            await MainActor.run {
                 errorMessage = error.localizedDescription
                 // Remove placeholder message on error
                 messages.removeAll { $0.id == assistantID }
+                isStreaming = false
             }
-            
-            isStreaming = false
         }
     }
     
@@ -479,5 +555,110 @@ final class ChatViewModel: ObservableObject {
     deinit {
         streamingTask?.cancel()
         errorDisplayTask?.cancel()
+    }
+    
+    // MARK: - Attachment Upload
+    
+    // MARK: - Attachment Handling
+    
+    private func handlePickedImage(_ image: UIImage) {
+        guard let data = image.jpegData(compressionQuality: 0.7) else { return }
+        let attachment = LocalAttachment(
+            type: "image",
+            data: data,
+            mimeType: "image/jpeg",
+            fileExtension: "jpg",
+            previewImage: image
+        )
+        localAttachments.append(attachment)
+        selectedImage = nil
+    }
+    
+    private func handlePickedDocument(_ url: URL) {
+        // Securely access the file
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+        
+        do {
+            let data = try Data(contentsOf: url)
+            let ext = url.pathExtension
+            let mimeType = ext == "pdf" ? "application/pdf" : "application/octet-stream"
+            // For generic files, we might want a generic icon.
+            // Since we can't easily generate a PDF thumbnail synchronously, utilize a system icon in UI based on type.
+            // Here `previewImage` is just nil or a placeholder? Let's keep it nil and handle in UI.
+            
+            let attachment = LocalAttachment(
+                type: "file",
+                data: data,
+                mimeType: mimeType,
+                fileExtension: ext,
+                previewImage: nil
+            )
+            localAttachments.append(attachment)
+            selectedFileURL = nil
+        } catch {
+            print("❌ Failed to read file data: \(error.localizedDescription)")
+            errorMessage = "Failed to access the selected file"
+        }
+    }
+    
+    private func uploadAllAttachments(_ attachments: [LocalAttachment]) async throws -> [Attachment] {
+        guard !attachments.isEmpty else { return [] }
+        
+        guard let uid = Auth.auth().currentUser?.uid else {
+            throw NSError(domain: "ChatViewModel", code: 401, userInfo: [NSLocalizedDescriptionKey: "You must be signed in to upload files"])
+        }
+        
+        return try await withThrowingTaskGroup(of: Attachment.self) { group in
+            for localAtt in attachments {
+                group.addTask {
+                    return try await self.uploadSingleAttachment(localAtt, uid: uid)
+                }
+            }
+            
+            var results: [Attachment] = []
+            for try await attachment in group {
+                results.append(attachment)
+            }
+            return results
+        }
+    }
+    
+    private func uploadSingleAttachment(_ attachment: LocalAttachment, uid: String) async throws -> Attachment {
+        let filename = "\(UUID().uuidString).\(attachment.fileExtension)"
+        let path = "uploads/\(uid)/\(sessionID)/\(filename)"
+        let storageRef = Storage.storage().reference().child(path)
+        
+        let metadata = StorageMetadata()
+        metadata.contentType = attachment.mimeType
+        
+        // We wrap the callback-based putData in a continuation
+        return try await withCheckedThrowingContinuation { continuation in
+            storageRef.putData(attachment.data, metadata: metadata) { metadata, error in
+                if let error = error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                
+                storageRef.downloadURL { url, error in
+                    if let error = error {
+                        continuation.resume(throwing: error)
+                        return
+                    }
+                    
+                    if let url = url {
+                        let uploadedAtt = Attachment(
+                            type: attachment.type,
+                            storagePath: "gs://\(storageRef.bucket)/\(path)",
+                            downloadURL: url.absoluteString,
+                            mimeType: attachment.mimeType
+                        )
+                        continuation.resume(returning: uploadedAtt)
+                    } else {
+                        continuation.resume(throwing: NSError(domain: "ChatViewModel", code: 500, userInfo: [NSLocalizedDescriptionKey: "Failed to get download URL"]))
+                    }
+                }
+            }
+        }
     }
 }

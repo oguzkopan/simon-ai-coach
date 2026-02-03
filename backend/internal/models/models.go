@@ -47,9 +47,10 @@ type Message struct {
 
 // Attachment represents a file attachment
 type Attachment struct {
-	Type        string `firestore:"type" json:"type"` // "image"
+	Type        string `firestore:"type" json:"type"` // "image" | "file"
 	StoragePath string `firestore:"storage_path" json:"storage_path"`
 	DownloadURL string `firestore:"download_url" json:"download_url"`
+	MimeType    string `firestore:"mime_type,omitempty" json:"mime_type,omitempty"`
 }
 
 // System represents a pinned system/routine
@@ -66,7 +67,7 @@ type System struct {
 
 // ChatDelta represents a streaming chat token
 type ChatDelta struct {
-	Kind  string `json:"kind"`  // "token" | "final" | "error"
+	Kind  string `json:"kind"` // "token" | "final" | "error"
 	Token string `json:"token,omitempty"`
 	Error string `json:"error,omitempty"`
 }
@@ -178,16 +179,16 @@ type When struct {
 
 // Checkin represents a scheduled check-in
 type Checkin struct {
-	ID        string          `firestore:"id" json:"id"`
-	UID       string          `firestore:"uid" json:"uid"`
-	CoachID   string          `firestore:"coach_id" json:"coach_id"`
-	Cadence   CheckinCadence  `firestore:"cadence" json:"cadence"`
-	Channel   string          `firestore:"channel" json:"channel"` // "in_app" | "local_notification_proposal"
-	NextRunAt time.Time       `firestore:"next_run_at" json:"next_run_at"`
-	LastRunAt *time.Time      `firestore:"last_run_at,omitempty" json:"last_run_at,omitempty"`
-	Status    string          `firestore:"status" json:"status"` // "active" | "paused" | "deleted"
-	CreatedAt time.Time       `firestore:"created_at" json:"created_at"`
-	UpdatedAt time.Time       `firestore:"updated_at" json:"updated_at"`
+	ID        string         `firestore:"id" json:"id"`
+	UID       string         `firestore:"uid" json:"uid"`
+	CoachID   string         `firestore:"coach_id" json:"coach_id"`
+	Cadence   CheckinCadence `firestore:"cadence" json:"cadence"`
+	Channel   string         `firestore:"channel" json:"channel"` // "in_app" | "local_notification_proposal"
+	NextRunAt time.Time      `firestore:"next_run_at" json:"next_run_at"`
+	LastRunAt *time.Time     `firestore:"last_run_at,omitempty" json:"last_run_at,omitempty"`
+	Status    string         `firestore:"status" json:"status"` // "active" | "paused" | "deleted"
+	CreatedAt time.Time      `firestore:"created_at" json:"created_at"`
+	UpdatedAt time.Time      `firestore:"updated_at" json:"updated_at"`
 }
 
 // CheckinCadence represents the schedule for check-ins
@@ -201,54 +202,54 @@ type CheckinCadence struct {
 
 // ToolRun represents a tool execution record
 type ToolRun struct {
-	ID              string                 `firestore:"id" json:"id"`
-	UID             string                 `firestore:"uid" json:"uid"`
-	ToolID          string                 `firestore:"tool_id" json:"tool_id"`
-	SessionID       string                 `firestore:"session_id,omitempty" json:"session_id,omitempty"`
-	Input           map[string]interface{} `firestore:"input" json:"input"`
-	Output          map[string]interface{} `firestore:"output,omitempty" json:"output,omitempty"`
-	Status          string                 `firestore:"status" json:"status"` // "pending" | "approved" | "declined" | "executed" | "failed"
-	ExecutionToken  string                 `firestore:"execution_token,omitempty" json:"execution_token,omitempty"`
-	Error           string                 `firestore:"error,omitempty" json:"error,omitempty"`
-	CreatedAt       time.Time              `firestore:"created_at" json:"created_at"`
-	UpdatedAt       time.Time              `firestore:"updated_at" json:"updated_at"`
+	ID             string                 `firestore:"id" json:"id"`
+	UID            string                 `firestore:"uid" json:"uid"`
+	ToolID         string                 `firestore:"tool_id" json:"tool_id"`
+	SessionID      string                 `firestore:"session_id,omitempty" json:"session_id,omitempty"`
+	Input          map[string]interface{} `firestore:"input" json:"input"`
+	Output         map[string]interface{} `firestore:"output,omitempty" json:"output,omitempty"`
+	Status         string                 `firestore:"status" json:"status"` // "pending" | "approved" | "declined" | "executed" | "failed"
+	ExecutionToken string                 `firestore:"execution_token,omitempty" json:"execution_token,omitempty"`
+	Error          string                 `firestore:"error,omitempty" json:"error,omitempty"`
+	CreatedAt      time.Time              `firestore:"created_at" json:"created_at"`
+	UpdatedAt      time.Time              `firestore:"updated_at" json:"updated_at"`
 }
 
 // WeeklyReview represents a weekly review structured output
 type WeeklyReview struct {
-	Wins           []string       `firestore:"wins" json:"wins"`
-	Misses         []string       `firestore:"misses" json:"misses"`
-	RootCauses     []string       `firestore:"root_causes" json:"root_causes"`
-	NextWeekFocus  []string       `firestore:"next_week_focus" json:"next_week_focus"`
-	Commitments    []Commitment   `firestore:"commitments" json:"commitments"`
+	Wins          []string     `firestore:"wins" json:"wins"`
+	Misses        []string     `firestore:"misses" json:"misses"`
+	RootCauses    []string     `firestore:"root_causes" json:"root_causes"`
+	NextWeekFocus []string     `firestore:"next_week_focus" json:"next_week_focus"`
+	Commitments   []Commitment `firestore:"commitments" json:"commitments"`
 }
 
 // RevenueCatEvent represents a webhook event from RevenueCat
 type RevenueCatEvent struct {
-	ID               string                 `firestore:"id" json:"id"`
-	EventType        string                 `firestore:"event_type" json:"event_type"`
-	AppUserID        string                 `firestore:"app_user_id" json:"app_user_id"`
-	OriginalAppUserID string                `firestore:"original_app_user_id,omitempty" json:"original_app_user_id,omitempty"`
-	ProductID        string                 `firestore:"product_id,omitempty" json:"product_id,omitempty"`
-	EntitlementIDs   []string               `firestore:"entitlement_ids,omitempty" json:"entitlement_ids,omitempty"`
-	PeriodType       string                 `firestore:"period_type,omitempty" json:"period_type,omitempty"`
-	PurchasedAt      *time.Time             `firestore:"purchased_at,omitempty" json:"purchased_at,omitempty"`
-	ExpirationAt     *time.Time             `firestore:"expiration_at,omitempty" json:"expiration_at,omitempty"`
-	Store            string                 `firestore:"store,omitempty" json:"store,omitempty"`
-	Environment      string                 `firestore:"environment" json:"environment"` // "SANDBOX" | "PRODUCTION"
-	RawPayload       map[string]interface{} `firestore:"raw_payload" json:"raw_payload"`
-	ProcessedAt      time.Time              `firestore:"processed_at" json:"processed_at"`
-	CreatedAt        time.Time              `firestore:"created_at" json:"created_at"`
+	ID                string                 `firestore:"id" json:"id"`
+	EventType         string                 `firestore:"event_type" json:"event_type"`
+	AppUserID         string                 `firestore:"app_user_id" json:"app_user_id"`
+	OriginalAppUserID string                 `firestore:"original_app_user_id,omitempty" json:"original_app_user_id,omitempty"`
+	ProductID         string                 `firestore:"product_id,omitempty" json:"product_id,omitempty"`
+	EntitlementIDs    []string               `firestore:"entitlement_ids,omitempty" json:"entitlement_ids,omitempty"`
+	PeriodType        string                 `firestore:"period_type,omitempty" json:"period_type,omitempty"`
+	PurchasedAt       *time.Time             `firestore:"purchased_at,omitempty" json:"purchased_at,omitempty"`
+	ExpirationAt      *time.Time             `firestore:"expiration_at,omitempty" json:"expiration_at,omitempty"`
+	Store             string                 `firestore:"store,omitempty" json:"store,omitempty"`
+	Environment       string                 `firestore:"environment" json:"environment"` // "SANDBOX" | "PRODUCTION"
+	RawPayload        map[string]interface{} `firestore:"raw_payload" json:"raw_payload"`
+	ProcessedAt       time.Time              `firestore:"processed_at" json:"processed_at"`
+	CreatedAt         time.Time              `firestore:"created_at" json:"created_at"`
 }
 
 // CalendarEvent represents a calendar event stored in Firestore
 type CalendarEvent struct {
-	ID        string       `firestore:"id" json:"id"`
-	UID       string       `firestore:"uid" json:"uid"`
-	CoachID   string       `firestore:"coach_id" json:"coach_id"`
-	SessionID *string      `firestore:"session_id,omitempty" json:"session_id,omitempty"`
-	ToolRunID string       `firestore:"tool_run_id" json:"tool_run_id"`
-	
+	ID        string  `firestore:"id" json:"id"`
+	UID       string  `firestore:"uid" json:"uid"`
+	CoachID   string  `firestore:"coach_id" json:"coach_id"`
+	SessionID *string `firestore:"session_id,omitempty" json:"session_id,omitempty"`
+	ToolRunID string  `firestore:"tool_run_id" json:"tool_run_id"`
+
 	// Event details
 	Title    string       `firestore:"title" json:"title"`
 	StartISO string       `firestore:"start_iso" json:"start_iso"`
@@ -256,11 +257,11 @@ type CalendarEvent struct {
 	Location *string      `firestore:"location,omitempty" json:"location,omitempty"`
 	Notes    *string      `firestore:"notes,omitempty" json:"notes,omitempty"`
 	Alarms   []EventAlarm `firestore:"alarms,omitempty" json:"alarms,omitempty"`
-	
+
 	// Native app sync
 	EventIdentifier *string `firestore:"event_identifier,omitempty" json:"event_identifier,omitempty"`
 	NativeStatus    string  `firestore:"native_status" json:"native_status"` // "created" | "denied_permission" | "failed"
-	
+
 	// Metadata
 	Status    string    `firestore:"status" json:"status"` // "upcoming" | "past"
 	CreatedAt time.Time `firestore:"created_at" json:"created_at"`
@@ -269,8 +270,8 @@ type CalendarEvent struct {
 
 // EventAlarm represents an alarm/reminder for an event
 type EventAlarm struct {
-	Kind         string `firestore:"kind" json:"kind"` // "at_datetime" | "minutes_before"
-	FireAtISO    string `firestore:"fire_at_iso,omitempty" json:"fire_at_iso,omitempty"`
+	Kind          string `firestore:"kind" json:"kind"` // "at_datetime" | "minutes_before"
+	FireAtISO     string `firestore:"fire_at_iso,omitempty" json:"fire_at_iso,omitempty"`
 	MinutesBefore int    `firestore:"minutes_before,omitempty" json:"minutes_before,omitempty"`
 }
 
@@ -281,18 +282,18 @@ type Reminder struct {
 	CoachID   string  `firestore:"coach_id" json:"coach_id"`
 	SessionID *string `firestore:"session_id,omitempty" json:"session_id,omitempty"`
 	ToolRunID string  `firestore:"tool_run_id" json:"tool_run_id"`
-	
+
 	// Reminder details
 	Title    string       `firestore:"title" json:"title"`
 	Notes    *string      `firestore:"notes,omitempty" json:"notes,omitempty"`
 	DueISO   *string      `firestore:"due_iso,omitempty" json:"due_iso,omitempty"`
 	Priority int          `firestore:"priority" json:"priority"` // 0-9
 	Alarms   []EventAlarm `firestore:"alarms,omitempty" json:"alarms,omitempty"`
-	
+
 	// Native app sync
 	ReminderIdentifier *string `firestore:"reminder_identifier,omitempty" json:"reminder_identifier,omitempty"`
 	NativeStatus       string  `firestore:"native_status" json:"native_status"` // "created" | "denied_permission" | "failed"
-	
+
 	// Metadata
 	Status      string     `firestore:"status" json:"status"` // "pending" | "completed" | "cancelled"
 	CompletedAt *time.Time `firestore:"completed_at,omitempty" json:"completed_at,omitempty"`
@@ -307,17 +308,17 @@ type ScheduledNotification struct {
 	CoachID   string  `firestore:"coach_id" json:"coach_id"`
 	SessionID *string `firestore:"session_id,omitempty" json:"session_id,omitempty"`
 	ToolRunID string  `firestore:"tool_run_id" json:"tool_run_id"`
-	
+
 	// Notification details
-	Title    string               `firestore:"title" json:"title"`
-	Body     string               `firestore:"body" json:"body"`
-	Trigger  NotificationTrigger  `firestore:"trigger" json:"trigger"`
-	DeepLink *DeepLink            `firestore:"deep_link,omitempty" json:"deep_link,omitempty"`
-	
+	Title    string              `firestore:"title" json:"title"`
+	Body     string              `firestore:"body" json:"body"`
+	Trigger  NotificationTrigger `firestore:"trigger" json:"trigger"`
+	DeepLink *DeepLink           `firestore:"deep_link,omitempty" json:"deep_link,omitempty"`
+
 	// Native app sync
 	NotificationIdentifier string `firestore:"notification_identifier" json:"notification_identifier"`
 	NativeStatus           string `firestore:"native_status" json:"native_status"` // "scheduled" | "denied" | "failed"
-	
+
 	// Metadata
 	Status      string     `firestore:"status" json:"status"` // "scheduled" | "delivered" | "cancelled"
 	DeliveredAt *time.Time `firestore:"delivered_at,omitempty" json:"delivered_at,omitempty"`

@@ -34,6 +34,7 @@ type PipelineInput struct {
 	SessionID   string
 	CoachID     string
 	UserMessage string
+	Attachments []models.Attachment
 	UID         string
 }
 
@@ -80,7 +81,7 @@ func (p *Pipeline) Execute(ctx context.Context, input PipelineInput) (*PipelineO
 		}
 
 		// Step 3: Coach Agent - Generate streaming response
-		coachOutput, err := p.coachAgent.Generate(ctx, input.UserMessage, contextPacket, stream)
+		coachOutput, err := p.coachAgent.Generate(ctx, input.UserMessage, input.Attachments, contextPacket, stream)
 		if err != nil {
 			stream <- SSEEvent{
 				Type: "error",
@@ -179,12 +180,12 @@ func (p *Pipeline) Execute(ctx context.Context, input PipelineInput) (*PipelineO
 // This avoids making extra API calls to save quota
 func (p *Pipeline) getDefaultRoute(message string) *router.Route {
 	messageLower := strings.ToLower(message)
-	
+
 	// Check for review/retrospective keywords
-	if strings.Contains(messageLower, "review") || 
-	   strings.Contains(messageLower, "retro") || 
-	   strings.Contains(messageLower, "retrospective") ||
-	   strings.Contains(messageLower, "weekly") {
+	if strings.Contains(messageLower, "review") ||
+		strings.Contains(messageLower, "retro") ||
+		strings.Contains(messageLower, "retrospective") ||
+		strings.Contains(messageLower, "weekly") {
 		return &router.Route{
 			Name:         "review_retro",
 			Confidence:   0.8,
@@ -193,11 +194,11 @@ func (p *Pipeline) getDefaultRoute(message string) *router.Route {
 			ToolIDs:      []string{"memory_read", "plan_update"},
 		}
 	}
-	
+
 	// Check for system/routine keywords
-	if strings.Contains(messageLower, "system") || 
-	   strings.Contains(messageLower, "routine") || 
-	   strings.Contains(messageLower, "habit") {
+	if strings.Contains(messageLower, "system") ||
+		strings.Contains(messageLower, "routine") ||
+		strings.Contains(messageLower, "habit") {
 		return &router.Route{
 			Name:         "make_a_system",
 			Confidence:   0.8,
@@ -206,11 +207,11 @@ func (p *Pipeline) getDefaultRoute(message string) *router.Route {
 			ToolIDs:      []string{"plan_create", "checkin_schedule"},
 		}
 	}
-	
+
 	// Check for scheduling keywords
-	if strings.Contains(messageLower, "schedule") || 
-	   strings.Contains(messageLower, "remind") || 
-	   strings.Contains(messageLower, "calendar") {
+	if strings.Contains(messageLower, "schedule") ||
+		strings.Contains(messageLower, "remind") ||
+		strings.Contains(messageLower, "calendar") {
 		return &router.Route{
 			Name:         "scheduling",
 			Confidence:   0.8,
@@ -219,12 +220,12 @@ func (p *Pipeline) getDefaultRoute(message string) *router.Route {
 			ToolIDs:      []string{"calendar_event_create", "reminder_create", "local_notification_schedule"},
 		}
 	}
-	
+
 	// Check for deep session keywords
-	if strings.Contains(messageLower, "plan") || 
-	   strings.Contains(messageLower, "strategy") || 
-	   strings.Contains(messageLower, "help me think") ||
-	   strings.Contains(messageLower, "overwhelmed") {
+	if strings.Contains(messageLower, "plan") ||
+		strings.Contains(messageLower, "strategy") ||
+		strings.Contains(messageLower, "help me think") ||
+		strings.Contains(messageLower, "overwhelmed") {
 		return &router.Route{
 			Name:         "deep_session",
 			Confidence:   0.8,
@@ -233,7 +234,7 @@ func (p *Pipeline) getDefaultRoute(message string) *router.Route {
 			ToolIDs:      []string{"memory_read", "memory_write", "plan_create"},
 		}
 	}
-	
+
 	// Default to quick nudge
 	return &router.Route{
 		Name:         "quick_nudge",

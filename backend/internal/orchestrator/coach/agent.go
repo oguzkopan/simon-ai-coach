@@ -7,12 +7,13 @@ import (
 	"strings"
 	"time"
 
-	"cloud.google.com/go/firestore"
-	"google.golang.org/genai"
 	"simon-backend/internal/gemini"
 	"simon-backend/internal/models"
 	orchestratorContext "simon-backend/internal/orchestrator/context"
 	"simon-backend/internal/tools"
+
+	"cloud.google.com/go/firestore"
+	"google.golang.org/genai"
 )
 
 // CoachOutput represents the output from the coach agent
@@ -24,11 +25,11 @@ type CoachOutput struct {
 
 // ToolRequest represents a tool execution request
 type ToolRequest struct {
-	RequestID             string
-	Tool                  string
-	RequiresConfirmation  bool
-	Reason                string
-	Payload               map[string]interface{}
+	RequestID            string
+	Tool                 string
+	RequiresConfirmation bool
+	Reason               string
+	Payload              map[string]interface{}
 }
 
 // SSEEvent represents a server-sent event
@@ -55,6 +56,7 @@ func NewCoachAgent(gm *gemini.Client, fs *firestore.Client) *CoachAgent {
 func (ca *CoachAgent) Generate(
 	ctx context.Context,
 	userMessage string,
+	attachments []models.Attachment,
 	contextPacket *orchestratorContext.ContextPacket,
 	stream chan<- SSEEvent,
 ) (*CoachOutput, error) {
@@ -82,14 +84,37 @@ func (ca *CoachAgent) Generate(
 		})
 	}
 
+	// Build current message parts
+	currentParts := []*genai.Part{{Text: userMessage}}
+	for _, att := range attachments {
+		if att.Type == "image" || att.Type == "file" {
+			fileURI := att.StoragePath
+			mimeType := att.MimeType
+			if mimeType == "" {
+				if att.Type == "image" {
+					mimeType = "image/jpeg"
+				} else {
+					mimeType = "application/pdf"
+				}
+			}
+
+			currentParts = append(currentParts, &genai.Part{
+				FileData: &genai.FileData{
+					MIMEType: mimeType,
+					FileURI:  fileURI,
+				},
+			})
+		}
+	}
+
 	// Generate streaming response from Gemini WITH function calling
 	fullText := ""
 	toolRequests := []ToolRequest{}
-	
-	if toolSchemas != nil && len(toolSchemas) > 0 {
+
+	if len(toolSchemas) > 0 {
 		// Use function calling version
 		resultChan, errChan := ca.geminiClient.GenerateContentStreamWithTools(
-			ctx, systemPrompt, historyForGemini, userMessage, toolSchemas,
+			ctx, systemPrompt, historyForGemini, currentParts, toolSchemas,
 		)
 
 		// Stream results (text and tool calls)
@@ -104,14 +129,14 @@ func (ca *CoachAgent) Generate(
 				if result.IsToolCall {
 					// Gemini wants to call a tool
 					fmt.Printf("🔧 Tool call detected: %s with args: %+v\n", result.ToolCall.Name, result.ToolCall.Arguments)
-					
+
 					// Transform Gemini function call format to tool registry format
 					transformedPayload := ca.transformToolPayload(result.ToolCall.Name, result.ToolCall.Arguments)
-					
+
 					// Check if this is a server tool that should be executed immediately
 					if ca.isServerTool(result.ToolCall.Name) {
 						fmt.Printf("🔧 Server tool detected, executing immediately: %s\n", result.ToolCall.Name)
-						
+
 						// Execute server tool immediately
 						output, err := ca.executeServerTool(ctx, result.ToolCall.Name, transformedPayload, contextPacket)
 						if err != nil {
@@ -190,8 +215,8 @@ func (ca *CoachAgent) Generate(
 		var tokenChan <-chan string
 		var errChan <-chan error
 
-		if len(historyForGemini) > 0 {
-			tokenChan, errChan = ca.geminiClient.GenerateContentStreamWithHistory(ctx, systemPrompt, historyForGemini, userMessage)
+		if len(historyForGemini) > 0 || len(attachments) > 0 {
+			tokenChan, errChan = ca.geminiClient.GenerateContentStreamWithHistory(ctx, systemPrompt, historyForGemini, currentParts)
 		} else {
 			fullPrompt := systemPrompt + "\n\nUser: " + userMessage
 			tokenChan, errChan = ca.geminiClient.GenerateContentStream(ctx, fullPrompt)
@@ -463,7 +488,7 @@ func (ca *CoachAgent) isToolAllowed(tool string, spec *models.CoachSpec) bool {
 // buildToolSchemas creates Gemini function declarations for allowed tools
 func (ca *CoachAgent) buildToolSchemas(spec *models.CoachSpec) []*genai.Tool {
 	declarations := []*genai.FunctionDeclaration{}
-	
+
 	// Calendar Event Create
 	if ca.isToolAllowed("calendar_event_create", spec) {
 		declarations = append(declarations, &genai.FunctionDeclaration{
@@ -497,7 +522,7 @@ func (ca *CoachAgent) buildToolSchemas(spec *models.CoachSpec) []*genai.Tool {
 			},
 		})
 	}
-	
+
 	// Reminder Create
 	if ca.isToolAllowed("reminder_create", spec) {
 		declarations = append(declarations, &genai.FunctionDeclaration{
@@ -527,7 +552,7 @@ func (ca *CoachAgent) buildToolSchemas(spec *models.CoachSpec) []*genai.Tool {
 			},
 		})
 	}
-	
+
 	// Local Notification Schedule
 	if ca.isToolAllowed("local_notification_schedule", spec) {
 		declarations = append(declarations, &genai.FunctionDeclaration{
@@ -553,7 +578,7 @@ func (ca *CoachAgent) buildToolSchemas(spec *models.CoachSpec) []*genai.Tool {
 			},
 		})
 	}
-	
+
 	// Plan Create
 	if ca.isToolAllowed("plan_create", spec) {
 		declarations = append(declarations, &genai.FunctionDeclaration{
@@ -602,7 +627,7 @@ func (ca *CoachAgent) buildToolSchemas(spec *models.CoachSpec) []*genai.Tool {
 			},
 		})
 	}
-	
+
 	// Memory Write
 	if ca.isToolAllowed("memory_write", spec) {
 		declarations = append(declarations, &genai.FunctionDeclaration{
@@ -627,7 +652,7 @@ func (ca *CoachAgent) buildToolSchemas(spec *models.CoachSpec) []*genai.Tool {
 			},
 		})
 	}
-	
+
 	// Check-in Schedule
 	if ca.isToolAllowed("checkin_schedule", spec) {
 		declarations = append(declarations, &genai.FunctionDeclaration{
@@ -654,12 +679,12 @@ func (ca *CoachAgent) buildToolSchemas(spec *models.CoachSpec) []*genai.Tool {
 			},
 		})
 	}
-	
+
 	// Return as Tool array
 	if len(declarations) == 0 {
 		return nil
 	}
-	
+
 	return []*genai.Tool{{FunctionDeclarations: declarations}}
 }
 
@@ -670,7 +695,7 @@ func (ca *CoachAgent) transformToolPayload(toolName string, geminiPayload map[st
 		// Gemini sends: {title, body, fire_at_iso}
 		// Tool registry expects: {title, body, trigger: {kind, fire_at_iso}, idempotency_key}
 		transformed := make(map[string]interface{})
-		
+
 		// Copy direct fields
 		if title, ok := geminiPayload["title"]; ok {
 			transformed["title"] = title
@@ -678,7 +703,7 @@ func (ca *CoachAgent) transformToolPayload(toolName string, geminiPayload map[st
 		if body, ok := geminiPayload["body"]; ok {
 			transformed["body"] = body
 		}
-		
+
 		// Transform fire_at_iso to trigger object
 		if fireAtISO, ok := geminiPayload["fire_at_iso"]; ok {
 			transformed["trigger"] = map[string]interface{}{
@@ -686,42 +711,42 @@ func (ca *CoachAgent) transformToolPayload(toolName string, geminiPayload map[st
 				"fire_at_iso": fireAtISO,
 			}
 		}
-		
+
 		// Generate idempotency key
 		transformed["idempotency_key"] = fmt.Sprintf("notif_%d", time.Now().UnixNano())
-		
+
 		return transformed
-		
+
 	case "calendar_event_create":
 		// Gemini sends: {title, start_iso, end_iso, location?, notes?}
 		// Tool registry expects: same + idempotency_key
 		transformed := make(map[string]interface{})
-		
+
 		// Copy all fields
 		for k, v := range geminiPayload {
 			transformed[k] = v
 		}
-		
+
 		// Generate idempotency key
 		transformed["idempotency_key"] = fmt.Sprintf("cal_%d", time.Now().UnixNano())
-		
+
 		return transformed
-		
+
 	case "reminder_create":
 		// Gemini sends: {title, due_iso?, notes?, priority?}
 		// Tool registry expects: same + idempotency_key
 		transformed := make(map[string]interface{})
-		
+
 		// Copy all fields
 		for k, v := range geminiPayload {
 			transformed[k] = v
 		}
-		
+
 		// Generate idempotency key
 		transformed["idempotency_key"] = fmt.Sprintf("rem_%d", time.Now().UnixNano())
-		
+
 		return transformed
-		
+
 	default:
 		// For other tools, return as-is
 		return geminiPayload
@@ -744,12 +769,12 @@ func generateRequestID() string {
 // isServerTool checks if a tool is executed on the server
 func (ca *CoachAgent) isServerTool(toolName string) bool {
 	serverTools := map[string]bool{
-		"memory_read":       true,
-		"memory_write":      true,
-		"plan_create":       true,
-		"plan_update":       true,
-		"plan_list_active":  true,
-		"checkin_schedule":  true,
+		"memory_read":      true,
+		"memory_write":     true,
+		"plan_create":      true,
+		"plan_update":      true,
+		"plan_list_active": true,
+		"checkin_schedule": true,
 	}
 	return serverTools[toolName]
 }
@@ -760,53 +785,53 @@ func (ca *CoachAgent) executeServerTool(ctx context.Context, toolName string, pa
 	planService := tools.NewPlanService(ca.fs)
 	memoryService := tools.NewMemoryService(ca.fs)
 	checkinService := tools.NewCheckinService(ca.fs)
-	
+
 	// Get UID from context
 	uid := ""
 	if contextPacket.User != nil {
 		uid = contextPacket.User.UID
 	}
-	
+
 	// Get CoachID from context
 	coachID := contextPacket.CoachID
-	
+
 	switch toolName {
 	case "memory_read":
 		query, _ := payload["query"].(string)
 		limit, _ := payload["limit"].(float64)
-		
+
 		req := tools.MemoryReadRequest{
 			UID:   uid,
 			Query: query,
 			Limit: int(limit),
 		}
-		
+
 		resp, err := memoryService.Read(ctx, req)
 		if err != nil {
 			return nil, err
 		}
-		
+
 		return map[string]interface{}{
 			"hits": resp.Hits,
 		}, nil
 
 	case "memory_write":
 		patchData, _ := payload["patch"].(map[string]interface{})
-		
+
 		var patch tools.MemoryPatch
 		if patchJSON, err := json.Marshal(patchData); err == nil {
 			json.Unmarshal(patchJSON, &patch)
 		}
-		
+
 		req := tools.MemoryWriteRequest{
 			UID:   uid,
 			Patch: patch,
 		}
-		
+
 		if err := memoryService.Write(ctx, req); err != nil {
 			return nil, err
 		}
-		
+
 		return map[string]interface{}{"status": "written"}, nil
 
 	case "plan_create":
@@ -815,18 +840,18 @@ func (ca *CoachAgent) executeServerTool(ctx context.Context, toolName string, pa
 		if planJSON, err := json.Marshal(payload); err == nil {
 			json.Unmarshal(planJSON, &plan)
 		}
-		
+
 		req := tools.PlanCreateRequest{
 			UID:     uid,
 			CoachID: coachID,
 			Plan:    plan,
 		}
-		
+
 		resp, err := planService.Create(ctx, req)
 		if err != nil {
 			return nil, err
 		}
-		
+
 		return map[string]interface{}{
 			"plan_id": resp.PlanID,
 			"status":  resp.Status,
@@ -835,56 +860,56 @@ func (ca *CoachAgent) executeServerTool(ctx context.Context, toolName string, pa
 	case "plan_update":
 		planID, _ := payload["plan_id"].(string)
 		updates, _ := payload["updates"].(map[string]interface{})
-		
+
 		req := tools.PlanUpdateRequest{
 			UID:     uid,
 			PlanID:  planID,
 			Updates: updates,
 		}
-		
+
 		resp, err := planService.Update(ctx, req)
 		if err != nil {
 			return nil, err
 		}
-		
+
 		return map[string]interface{}{"status": resp.Status}, nil
 
 	case "plan_list_active":
 		limit, _ := payload["limit"].(float64)
-		
+
 		req := tools.PlanListRequest{
 			UID:   uid,
 			Limit: int(limit),
 		}
-		
+
 		resp, err := planService.ListActive(ctx, req)
 		if err != nil {
 			return nil, err
 		}
-		
+
 		return map[string]interface{}{"plans": resp.Plans}, nil
 
 	case "checkin_schedule":
 		channel, _ := payload["channel"].(string)
 		cadenceData, _ := payload["cadence"].(map[string]interface{})
-		
+
 		var cadence models.CheckinCadence
 		if cadenceJSON, err := json.Marshal(cadenceData); err == nil {
 			json.Unmarshal(cadenceJSON, &cadence)
 		}
-		
+
 		req := tools.CheckinScheduleRequest{
 			UID:     uid,
 			CoachID: coachID,
 			Cadence: cadence,
 			Channel: channel,
 		}
-		
+
 		resp, err := checkinService.Schedule(ctx, req)
 		if err != nil {
 			return nil, err
 		}
-		
+
 		return map[string]interface{}{
 			"checkin_id": resp.CheckinID,
 			"status":     resp.Status,

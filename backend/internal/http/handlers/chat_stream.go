@@ -91,9 +91,7 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 		log.Printf("StreamChat: uid=%s, sessionID=%s", uid, sessionID)
 
 		// Parse request body
-		var req struct {
-			Message string `json:"message" binding:"required"`
-		}
+		var req models.SendMessageRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 			return
@@ -148,8 +146,8 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 		userMsg := models.Message{
 			ID:          uuid.New().String(),
 			Role:        "user",
-			ContentText: req.Message,
-			Attachments: nil,
+			ContentText: req.UserText,
+			Attachments: req.Attachments,
 			CreatedAt:   time.Now(),
 		}
 
@@ -169,11 +167,11 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 		updates := []firestore.Update{
 			{Path: "updated_at", Value: time.Now()},
 		}
-		
+
 		// If session title is still "New Session", generate a better title from the first message
 		if session.Title == "New Session" {
 			// Generate title from first 50 characters of the message
-			title := req.Message
+			title := req.UserText
 			if len(title) > 50 {
 				title = title[:50] + "..."
 			}
@@ -183,7 +181,7 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 			})
 			log.Printf("Updating session title to: %s", title)
 		}
-		
+
 		_, err = fs.DB.Collection("sessions").Doc(sessionID).Update(ctx, updates)
 		if err != nil {
 			log.Printf("Error updating session: %v", err)
@@ -196,7 +194,8 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 		output, err := pipeline.Execute(ctx, orchestrator.PipelineInput{
 			SessionID:   sessionID,
 			CoachID:     coachID,
-			UserMessage: req.Message,
+			UserMessage: req.UserText,
+			Attachments: req.Attachments,
 			UID:         uid,
 		})
 		if err != nil {
@@ -219,7 +218,7 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 
 		// Event ID counter
 		eventID := 0
-		
+
 		// Track assistant message
 		var assistantMessageID string
 		var assistantMessageText string
@@ -231,7 +230,7 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 				if !ok {
 					// Stream closed normally
 					log.Printf("Stream closed: sessionID=%s", sessionID)
-					
+
 					// Save assistant message if we have one
 					if assistantMessageText != "" {
 						assistantMsg := models.Message{
@@ -241,7 +240,7 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 							Attachments: nil,
 							CreatedAt:   time.Now(),
 						}
-						
+
 						_, err := fs.DB.Collection("sessions").Doc(sessionID).
 							Collection("messages").Doc(assistantMsg.ID).Set(context.Background(), assistantMsg)
 						if err != nil {
@@ -250,7 +249,7 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 							log.Printf("Saved assistant message: %s", assistantMessageID)
 						}
 					}
-					
+
 					return
 				}
 
@@ -259,7 +258,7 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 
 				// Debug log the event
 				log.Printf("SSE Event #%d: type=%s, data=%+v", eventID, event.Type, event.Data)
-				
+
 				// Track message content for saving
 				if event.Type == "message.delta" {
 					if delta, ok := event.Data["delta"].(string); ok {
@@ -285,7 +284,7 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 				// Exit on completion or error
 				if event.Type == "stream.done" || event.Type == "error" {
 					log.Printf("Stream completed: sessionID=%s, type=%s", sessionID, event.Type)
-					
+
 					// Save assistant message before exiting
 					if assistantMessageText != "" {
 						assistantMsg := models.Message{
@@ -295,7 +294,7 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 							Attachments: nil,
 							CreatedAt:   time.Now(),
 						}
-						
+
 						_, err := fs.DB.Collection("sessions").Doc(sessionID).
 							Collection("messages").Doc(assistantMsg.ID).Set(context.Background(), assistantMsg)
 						if err != nil {
@@ -304,7 +303,7 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 							log.Printf("Saved assistant message: %s", assistantMessageID)
 						}
 					}
-					
+
 					return
 				}
 
@@ -430,4 +429,3 @@ func extractToken(resp *genai.GenerateContentResponse) string {
 	}
 	return ""
 }
-

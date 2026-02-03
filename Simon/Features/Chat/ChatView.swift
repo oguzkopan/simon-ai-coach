@@ -6,18 +6,22 @@ struct ChatView: View {
     @State private var scrollProxy: ScrollViewProxy?
     @FocusState private var isInputFocused: Bool
     
+    // Attachment Picker State
+    @State private var showImagePicker = false
+    @State private var showDocumentPicker = false
+    @State private var showCamera = false
+    @State private var previewAttachment: ChatViewModel.LocalAttachment?
+    @State private var showAttachmentOptions = false
+    
     init(viewModel: ChatViewModel) {
         _viewModel = StateObject(wrappedValue: viewModel)
         print("🟢 ChatView init - sessionID: \(viewModel.sessionID)")
     }
-    
-    // MARK: - Save Plan
-    
+        
     private func savePlan(_ planInfo: PlanCardPayload.PlanInfo) async {
-        // Convert PlanInfo to Plan
         let plan = Plan(
             id: UUID().uuidString,
-            uid: "", // Will be set by backend
+            uid: "",
             coachId: viewModel.coachName,
             title: planInfo.title,
             objective: planInfo.objective,
@@ -27,7 +31,7 @@ struct ChatView: View {
                     id: UUID().uuidString,
                     title: milestone.label,
                     description: milestone.successMetric,
-                    dueDate: nil, // Parse from dueDateHint if needed
+                    dueDate: nil,
                     status: .pending
                 )
             },
@@ -57,7 +61,6 @@ struct ChatView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Messages
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 12) {
@@ -201,6 +204,7 @@ struct ChatView: View {
                 .contentShape(Rectangle())
                 .onTapGesture {
                     isInputFocused = false
+                    UIApplication.shared.endEditing()
                 }
                 .onAppear {
                     scrollProxy = proxy
@@ -212,9 +216,12 @@ struct ChatView: View {
                         }
                     }
                 }
-            } // ScrollViewReader
+            }
+            .onTapGesture {
+                isInputFocused = false
+                UIApplication.shared.endEditing()
+            }
             
-            // Error banner - only show if there are messages (don't duplicate the error state)
             if let errorMessage = viewModel.errorMessage, !viewModel.messages.isEmpty {
                 HStack {
                     Text(errorMessage)
@@ -233,61 +240,143 @@ struct ChatView: View {
                 .background(Color.red)
             }
             
-            // ComposerBar handled by .toolbar
+            // Composer Area (Sticky Bottom)
+            VStack(spacing: 0) {
+                Divider()
+                
+                VStack(spacing: 0) {
+                    // Attachment Strip & Upload Indicator
+                    if !viewModel.localAttachments.isEmpty || viewModel.isUploading {
+                        VStack(alignment: .leading, spacing: 8) {
+                            if !viewModel.localAttachments.isEmpty {
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 12) {
+                                        ForEach(viewModel.localAttachments) { attachment in
+                                            ZStack(alignment: .topTrailing) {
+                                                Button(action: {
+                                                    previewAttachment = attachment
+                                                }) {
+                                                    if let preview = attachment.previewImage {
+                                                        Image(uiImage: preview)
+                                                            .resizable()
+                                                            .aspectRatio(contentMode: .fill)
+                                                            .frame(width: 56, height: 56)
+                                                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                                                            .overlay(
+                                                                RoundedRectangle(cornerRadius: 12)
+                                                                    .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+                                                            )
+                                                    } else {
+                                                        ZStack {
+                                                            RoundedRectangle(cornerRadius: 12)
+                                                                .fill(Color.blue.opacity(0.1))
+                                                            Image(systemName: "doc.fill")
+                                                                .font(.system(size: 24))
+                                                                .foregroundColor(.blue)
+                                                        }
+                                                        .frame(width: 56, height: 56)
+                                                    }
+                                                }
+                                                
+                                                // Remove Button
+                                                Button(action: {
+                                                    withAnimation {
+                                                        viewModel.removeAttachment(id: attachment.id)
+                                                    }
+                                                }) {
+                                                    Image(systemName: "xmark.circle.fill")
+                                                        .font(.system(size: 20))
+                                                        .foregroundColor(.gray)
+                                                        .background(Color.white.clipShape(Circle()))
+                                                }
+                                                .offset(x: 6, y: -6)
+                                            }
+                                            .padding(.top, 6)
+                                            .padding(.trailing, 6)
+                                        }
+                                    }
+                                    .padding(.horizontal, 16)
+                                }
+                                .frame(height: 78)
+                            }
+                            
+                            if viewModel.isUploading {
+                                HStack(spacing: 8) {
+                                    ProgressView()
+                                        .scaleEffect(0.8)
+                                    Text("Uploading attachments...")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding(.leading, 16)
+                            }
+                        }
+                        .padding(.bottom, 8)
+                    }
+                    
+                    // Input Row
+                    HStack(alignment: .bottom, spacing: 10) {
+                        // Attachment Button
+                        Button(action: {
+                            // Logic to show action sheet or menu
+                            showAttachmentOptions = true
+                        }) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundColor(.gray)
+                                .frame(width: 32, height: 32)
+                                .background(Color(.systemGray6))
+                                .clipShape(Circle())
+                        }
+                        .disabled(viewModel.isStreaming)
+                        .confirmationDialog("Add Attachment", isPresented: $showAttachmentOptions, titleVisibility: .visible) {
+                            Button("Photo Library") { showImagePicker = true }
+                            Button("Camera") { showCamera = true }
+                            Button("Document") { showDocumentPicker = true }
+                            Button("Cancel", role: .cancel) { }
+                        }
+                        
+                        // Text field
+                        TextField("Message...", text: $viewModel.composerText, axis: .vertical)
+                            .font(theme.font(16))
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .focused($isInputFocused)
+                            .lineLimit(1...5)
+                            .disabled(viewModel.isStreaming)
+                            .background(Color(.systemGray6))
+                            .cornerRadius(20)
+                        
+                        // Send/Stop button
+                        Button(action: {
+                            if viewModel.isStreaming {
+                                viewModel.stopStreaming()
+                            } else {
+                                viewModel.send()
+                            }
+                        }) {
+                            Image(systemName: viewModel.isStreaming ? "stop.circle.fill" : "arrow.up.circle.fill")
+                                .font(.system(size: 30))
+                                .foregroundColor(viewModel.isStreaming ? .red : (viewModel.composerText.isEmpty && viewModel.localAttachments.isEmpty ? .gray : theme.accentPrimary))
+                        }
+                        .disabled(!viewModel.isStreaming && viewModel.composerText.isEmpty && viewModel.localAttachments.isEmpty)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                }
+                .background(Color(.systemBackground))
+            }
         } // VStack
         .navigationTitle(viewModel.coachName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
-        .toolbar {
-            ToolbarItem(placement: .bottomBar) {
-                HStack(alignment: .bottom, spacing: 10) {
-                    // Attachment button
-                    Button(action: {
-                        viewModel.showAttachmentPicker = true
-                    }) {
-                        Image(systemName: "paperclip")
-                            .font(.system(size: 20))
-                            .foregroundColor(theme.accentPrimary)
-                            .frame(width: 36, height: 36)
-                            .background(Color.white.opacity(0.1))
-                            .clipShape(Circle())
-                    }
-                    .disabled(viewModel.isStreaming)
-                    
-                    // Text field
-                    TextField("Message...", text: $viewModel.composerText, axis: .vertical)
-                        .font(theme.font(16))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .focused($isInputFocused)
-                        .lineLimit(1...5)
-                        .disabled(viewModel.isStreaming)
-                        .background(Color(.systemGray6)) 
-                        .cornerRadius(20)
-                    
-                    // Send/Stop button
-                    Button(action: {
-                        if viewModel.isStreaming {
-                            viewModel.stopStreaming()
-                        } else {
-                            viewModel.send()
-                        }
-                    }) {
-                        Image(systemName: viewModel.isStreaming ? "stop.circle.fill" : "arrow.up.circle.fill")
-                            .font(.system(size: 30))
-                            .foregroundColor(viewModel.isStreaming ? .red : (viewModel.composerText.isEmpty ? .gray : theme.accentPrimary))
-                    }
-                    .disabled(!viewModel.isStreaming && viewModel.composerText.isEmpty)
-                }
-                .padding(.horizontal, 4)
-                .padding(.vertical, 8)
+        .onAppear {
+            // Auto-focus the text field when the view appears
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                isInputFocused = true
             }
         }
-        .toolbarBackground(.visible, for: .bottomBar)
-        .toolbarBackground(.ultraThinMaterial, for: .bottomBar) // Using standard material to mimic Liquid Glass
-        // The following modifier is hypothetical based on "iOS 26" request, 
-        // using standard API that achieves the effect.
-        .toolbarRole(.editor)
+
         .task {
             print("🟢 ChatView .task triggered - sessionID: \(viewModel.sessionID)")
             AnalyticsManager.shared.logScreenView("chat", screenClass: "ChatView")
@@ -296,12 +385,26 @@ struct ChatView: View {
                 sessionID: viewModel.sessionID
             )
             
-            // Only load messages once when view appears
             if viewModel.messages.isEmpty && !viewModel.isLoadingMessages {
                 print("🟢 Calling loadMessages()")
                 await viewModel.loadMessages()
-            } else {
-                print("🟡 Skipping loadMessages - messages: \(viewModel.messages.count), isLoading: \(viewModel.isLoadingMessages)")
+            }
+        }
+        .sheet(isPresented: $showImagePicker) {
+            ImagePicker(image: $viewModel.selectedImage)
+        }
+        .sheet(isPresented: $showDocumentPicker) {
+            DocumentPicker(fileURL: $viewModel.selectedFileURL)
+        }
+        .sheet(isPresented: $showCamera) {
+            CameraPicker(image: $viewModel.selectedImage)
+        }
+        .sheet(item: $previewAttachment) { attachment in
+            AttachmentPreviewView(attachment: attachment) {
+                withAnimation {
+                    viewModel.removeAttachment(id: attachment.id)
+                }
+                previewAttachment = nil
             }
         }
         .sheet(isPresented: $viewModel.showPinSheet) {
@@ -316,7 +419,6 @@ struct ChatView: View {
                 }
             }
         }
-        // Removed sheet presentation - now using inline ToolApprovalCard
     }
 }
 
@@ -366,10 +468,53 @@ struct MessageBubble: View {
     }
 }
 
-
+struct AttachmentPreviewView: View {
+    let attachment: ChatViewModel.LocalAttachment
+    let onDelete: () -> Void
+    @Environment(\.presentationMode) var presentationMode
+    
+    var body: some View {
+        NavigationView {
+            VStack {
+                if let image = attachment.previewImage {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    VStack(spacing: 20) {
+                        Image(systemName: "doc.fill")
+                            .font(.system(size: 80))
+                            .foregroundColor(.blue)
+                        Text(attachment.fileExtension.uppercased())
+                            .font(.title)
+                            .bold()
+                        Text("Document Preview Not Available")
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .navigationTitle("Attachment Preview")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Close") {
+                        presentationMode.wrappedValue.dismiss()
+                    }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: onDelete) {
+                        Image(systemName: "trash")
+                            .foregroundColor(.red)
+                    }
+                }
+            }
+        }
+    }
+}
 
 // MARK: - Tool Approval Card (Inline)
-
 struct ToolApprovalCard: View {
     let toolRequest: ToolRequestPayload
     let onApprove: () -> Void
@@ -443,9 +588,7 @@ struct ToolApprovalCard: View {
         .cornerRadius(16)
         .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: 2)
     }
-    
-    // MARK: - Tool Icon
-    
+        
     private var toolIcon: String {
         switch toolRequest.toolId {
         case "local_notification_schedule":
@@ -458,9 +601,7 @@ struct ToolApprovalCard: View {
             return "wrench.and.screwdriver"
         }
     }
-    
-    // MARK: - Tool Title
-    
+        
     private var toolTitle: String {
         switch toolRequest.toolId {
         case "local_notification_schedule":
@@ -473,9 +614,7 @@ struct ToolApprovalCard: View {
             return "Tool Execution"
         }
     }
-    
-    // MARK: - Tool Preview
-    
+        
     @ViewBuilder
     private var toolPreview: some View {
         let convertedInput = toolRequest.input.mapValues { $0.value }
@@ -565,8 +704,6 @@ struct ToolApprovalCard: View {
         .cornerRadius(10)
     }
 }
-
-// MARK: - Helper Functions
 
 private func formatISO8601(_ isoString: String) -> String {
     let formatter = ISO8601DateFormatter()

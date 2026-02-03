@@ -46,11 +46,13 @@ struct Attachment: Codable, Equatable {
     let type: String
     let storagePath: String
     let downloadURL: String
+    let mimeType: String?
     
     enum CodingKeys: String, CodingKey {
         case type
         case storagePath = "storage_path"
         case downloadURL = "download_url"
+        case mimeType = "mime_type"
     }
 }
 

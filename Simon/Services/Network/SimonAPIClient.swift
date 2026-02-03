@@ -23,7 +23,7 @@ protocol SimonAPI {
     func publishCoach(coachId: String) async throws -> Coach
     func createSession(coachID: String?) async throws -> Session
     func getSession(id: String) async throws -> SessionDetail
-    func streamChat(sessionID: String, userText: String) -> AsyncThrowingStream<SSEEvent, Error>
+    func streamChat(sessionID: String, userText: String, attachments: [Attachment]?) -> AsyncThrowingStream<SSEEvent, Error>
     func listSessions(limit: Int?) async throws -> [Session]
     func listSystems() async throws -> [System]
     func createSystem(system: System) async throws -> System
@@ -293,9 +293,9 @@ final class SimonAPIClient: SimonAPI {
     
     // MARK: - Chat Streaming
     
-    func streamChat(sessionID: String, userText: String) -> AsyncThrowingStream<SSEEvent, Error> {
+    func streamChat(sessionID: String, userText: String, attachments: [Attachment]? = nil) -> AsyncThrowingStream<SSEEvent, Error> {
         let url = baseURL.appendingPathComponent("/v1/sessions/\(sessionID)/stream")
-        let request = ChatStreamRequest(message: userText)
+        let request = ChatStreamRequest(userText: userText, attachments: attachments)
         let sseManager = SSEStreamManager()
         return sseManager.connect(url: url, request: request)
     }
