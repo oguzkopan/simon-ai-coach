@@ -276,76 +276,13 @@ struct BrowseView: View {
     }
     
     var body: some View {
-        VStack(spacing: 0) {
-            // Custom top bar with header and profile icon
-            HStack(alignment: .center, spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Browse")
-                        .font(theme.font(34, weight: .bold))
-                        .foregroundColor(.primary)
-                    Text("Pick a coach and start instantly.")
-                        .font(theme.font(15))
-                        .foregroundColor(.secondary)
-                }
-                
-                Spacer()
-                
-                Button(action: {
-                    showSettings = true
-                }) {
-                    if authManager.isAuthenticated {
-                        // Show profile picture or initial
-                        if let photoURL = authManager.currentUser?.photoURL {
-                            AsyncImage(url: photoURL) { image in
-                                image
-                                    .resizable()
-                                    .scaledToFill()
-                            } placeholder: {
-                                Circle()
-                                    .fill(theme.accentTint)
-                                    .overlay(
-                                        Text(authManager.currentUser?.displayName?.prefix(1).uppercased() ?? "U")
-                                            .font(theme.font(15, weight: .semibold))
-                                            .foregroundColor(theme.accentPrimary)
-                                    )
-                            }
-                            .frame(width: 40, height: 40)
-                            .clipShape(Circle())
-                        } else {
-                            Circle()
-                                .fill(theme.accentTint)
-                                .frame(width: 40, height: 40)
-                                .overlay(
-                                    Text(authManager.currentUser?.displayName?.prefix(1).uppercased() ?? "U")
-                                        .font(theme.font(15, weight: .semibold))
-                                        .foregroundColor(theme.accentPrimary)
-                                )
-                        }
-                    } else {
-                        Circle()
-                            .fill(theme.accentPrimary.opacity(0.1))
-                            .frame(width: 40, height: 40)
-                            .overlay(
-                                Image(systemName: "person.circle.fill")
-                                    .font(.system(size: 22))
-                                    .foregroundColor(theme.accentPrimary)
-                            )
-                    }
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
-            .padding(.bottom, 12)
-            .background(Color(.systemBackground))
-            
-            // Main content
-            HomeView(
-                viewModel: HomeViewModel(apiClient: apiClient),
-                onCoachTap: { coach in
-                    onNavigateToCoach?(coach)
-                }
-            )
-        }
+        HomeView(
+            viewModel: HomeViewModel(apiClient: apiClient),
+            onCoachTap: { coach in
+                onNavigateToCoach?(coach)
+            },
+            showSettings: $showSettings
+        )
         .fullScreenCover(isPresented: $showSettings) {
             SettingsView(vm: SettingsViewModel(
                 apiClient: apiClient,

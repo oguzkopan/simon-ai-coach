@@ -19,9 +19,14 @@ func main() {
 	ctx := context.Background()
 
 	// Load configuration
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
 	log.Printf("Starting Simon API on port %s", cfg.Port)
-	log.Printf("Project: %s, Location: %s", cfg.ProjectID, cfg.Location)
+	log.Printf("Project: %s", cfg.ProjectID)
+	log.Printf("Location: %s", cfg.Location)
+	log.Printf("Gemini Model: %s", cfg.GeminiModelID)
 
 	// Initialize Firestore
 	fs, err := firestore.New(ctx, cfg.ProjectID)
@@ -32,12 +37,12 @@ func main() {
 	log.Println("Firestore initialized successfully")
 
 	// Initialize Gemini
-	gm, err := gemini.New(ctx, cfg.ProjectID, cfg.Location, cfg.ModelID)
+	gm, err := gemini.New(ctx, cfg.ProjectID, cfg.Location, cfg.GeminiModelID)
 	if err != nil {
 		log.Fatalf("Failed to initialize Gemini: %v", err)
 	}
 	defer gm.Close()
-	log.Printf("Gemini initialized successfully (model: %s)", cfg.ModelID)
+	log.Println("Gemini initialized successfully")
 
 	// Initialize router
 	r, err := router.New(cfg, fs, gm)

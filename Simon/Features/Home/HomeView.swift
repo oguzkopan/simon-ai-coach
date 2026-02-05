@@ -3,47 +3,34 @@ import SwiftUI
 struct HomeView: View {
     @StateObject private var viewModel: HomeViewModel
     @EnvironmentObject private var theme: ThemeStore
-    @State private var showCoachBuilder = false
+    @State private var navigateToCoachBuilder = false
+    @Binding var showSettings: Bool
     let onCoachTap: ((Coach) -> Void)?
     
-    init(viewModel: HomeViewModel, onCoachTap: ((Coach) -> Void)? = nil) {
+    init(viewModel: HomeViewModel, onCoachTap: ((Coach) -> Void)? = nil, showSettings: Binding<Bool>) {
         _viewModel = StateObject(wrappedValue: viewModel)
         self.onCoachTap = onCoachTap
+        _showSettings = showSettings
     }
     
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                // Header with Create Button
-                HStack {
-                    Text("Coaches")
-                        .font(theme.font(28, weight: .bold))
-                    
-                    Spacer()
-                    
-                    Button(action: { showCoachBuilder = true }) {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 28))
-                            .foregroundColor(theme.accentPrimary)
-                    }
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 8)
-                // Filter chips
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(viewModel.categories, id: \.self) { category in
-                            FilterChip(
-                                title: category,
-                                isSelected: viewModel.selectedCategory == category || (viewModel.selectedCategory == nil && category == "All"),
-                                action: { viewModel.selectCategory(category) }
-                            )
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 12) {
+                            ForEach(viewModel.categories, id: \.self) { category in
+                                FilterChip(
+                                    title: category,
+                                    isSelected: viewModel.selectedCategory == category || (viewModel.selectedCategory == nil && category == "All"),
+                                    action: { viewModel.selectCategory(category) }
+                                )
+                            }
                         }
+                        .padding(.horizontal, 20)
                     }
-                    .padding(.horizontal, 20)
                 }
                 
-                // Loading state
                 if viewModel.isLoading {
                     VStack(spacing: 16) {
                         ForEach(0..<3, id: \.self) { _ in
@@ -52,7 +39,6 @@ struct HomeView: View {
                     }
                     .padding(.horizontal, 20)
                 }
-                // Error state
                 else if let errorMessage = viewModel.errorMessage {
                     VStack(spacing: 16) {
                         Text("Failed to load coaches")
@@ -74,7 +60,6 @@ struct HomeView: View {
                     .padding(40)
                     .frame(maxWidth: .infinity)
                 }
-                // Coach list
                 else if viewModel.coaches.isEmpty {
                     VStack(spacing: 16) {
                         Text("No coaches found")
@@ -102,27 +87,52 @@ struct HomeView: View {
                     .padding(.horizontal, 20)
                 }
             }
-            .padding(.bottom, 100) // Space for tab bar
-        }
-        .task {
-            if viewModel.coaches.isEmpty && !viewModel.isLoading {
-                await viewModel.loadCoaches()
-            }
-        }
-        .sheet(isPresented: $showCoachBuilder) {
-            CoachBuilderView(
-                viewModel: CoachBuilderViewModel(
-                    apiClient: viewModel.apiClient,
-                    onCoachCreated: { coach in
-                        showCoachBuilder = false
-                        viewModel.handleCoachCreated(coach)
+            .navigationTitle("Browse Coaches")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: {
+                        showSettings = true
+                    }) {
+                        Circle()
+                            .fill(theme.accentTint)
+                            .frame(width: 32, height: 32)
+                            .overlay(
+                                Text("U")
+                                    .font(theme.font(15, weight: .semibold))
+                                    .foregroundColor(theme.accentPrimary)
+                            )
                     }
+                }
+                
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: { navigateToCoachBuilder = true }) {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 28))
+                            .foregroundColor(theme.accentPrimary)
+                    }
+                }
+            }
+            .navigationDestination(isPresented: $navigateToCoachBuilder) {
+                CoachBuilderView(
+                    viewModel: CoachBuilderViewModel(
+                        apiClient: viewModel.apiClient,
+                        onCoachCreated: { coach in
+                            navigateToCoachBuilder = false
+                            viewModel.handleCoachCreated(coach)
+                        }
+                    )
                 )
-            )
-        }
-        .onAppear {
-            AnalyticsManager.shared.logScreenView("home", screenClass: "HomeView")
-        }
+            }
+            .task {
+                if viewModel.coaches.isEmpty && !viewModel.isLoading {
+                    await viewModel.loadCoaches()
+                }
+            }
+            .onAppear {
+                AnalyticsManager.shared.logScreenView("home", screenClass: "HomeView")
+            }
+        } // NavigationStack
     }
 }
 

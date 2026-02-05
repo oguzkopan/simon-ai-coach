@@ -192,11 +192,13 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 
 		// Execute pipeline
 		output, err := pipeline.Execute(ctx, orchestrator.PipelineInput{
-			SessionID:   sessionID,
-			CoachID:     coachID,
-			UserMessage: req.UserText,
-			Attachments: req.Attachments,
-			UID:         uid,
+			SessionID:     sessionID,
+			CoachID:       coachID,
+			UserMessage:   req.UserText,
+			Attachments:   req.Attachments,
+			UID:           uid,
+			UserTimezone:  req.UserTimezone,
+			UserLocalTime: req.UserLocalTime,
 		})
 		if err != nil {
 			log.Printf("Pipeline execution error: %v", err)

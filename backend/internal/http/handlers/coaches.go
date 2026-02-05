@@ -11,8 +11,10 @@ import (
 	"google.golang.org/api/iterator"
 
 	fsClient "simon-backend/internal/firestore"
+	"simon-backend/internal/gemini"
 	"simon-backend/internal/http/middleware"
 	"simon-backend/internal/models"
+	"simon-backend/internal/services"
 	"simon-backend/internal/validation"
 )
 
@@ -32,42 +34,100 @@ func ListCoaches(fs *fsClient.Client) gin.HandlerFunc {
 
 		log.Printf("ListCoaches: uid=%s, tag=%s, featured=%s", uid, tag, featured)
 
-		// Build query
-		query := fs.DB.Collection("coaches").Where("visibility", "==", "public")
-
-		if tag != "" {
-			query = query.Where("tags", "array-contains", tag)
-		}
-
-		if featured == "true" {
-			query = query.Where("featured", "==", true)
-		}
-
-		// Execute query
-		iter := query.Documents(ctx)
-		defer iter.Stop()
-
 		var coaches []models.Coach
-		for {
-			doc, err := iter.Next()
-			if err == iterator.Done {
-				break
+		
+		// If user is authenticated, get both public coaches AND their own private coaches
+		if uid != "" {
+			// Get public coaches
+			publicQuery := fs.DB.Collection("coaches").Where("visibility", "==", "public")
+			if tag != "" {
+				publicQuery = publicQuery.Where("tags", "array-contains", tag)
 			}
-			if err != nil {
-				log.Printf("Error iterating coaches: %v", err)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list coaches"})
-				return
+			if featured == "true" {
+				publicQuery = publicQuery.Where("featured", "==", true)
 			}
-
-			var coach models.Coach
-			if err := doc.DataTo(&coach); err != nil {
-				log.Printf("Error parsing coach %s: %v", doc.Ref.ID, err)
-				continue
+			
+			publicIter := publicQuery.Documents(ctx)
+			for {
+				doc, err := publicIter.Next()
+				if err == iterator.Done {
+					break
+				}
+				if err != nil {
+					log.Printf("Error iterating public coaches: %v", err)
+					continue
+				}
+				
+				var coach models.Coach
+				if err := doc.DataTo(&coach); err != nil {
+					log.Printf("Error parsing coach %s: %v", doc.Ref.ID, err)
+					continue
+				}
+				coaches = append(coaches, coach)
 			}
-			coaches = append(coaches, coach)
+			publicIter.Stop()
+			
+			// Get user's own private coaches
+			privateQuery := fs.DB.Collection("coaches").
+				Where("visibility", "==", "private").
+				Where("owner_uid", "==", uid)
+			if tag != "" {
+				privateQuery = privateQuery.Where("tags", "array-contains", tag)
+			}
+			
+			privateIter := privateQuery.Documents(ctx)
+			for {
+				doc, err := privateIter.Next()
+				if err == iterator.Done {
+					break
+				}
+				if err != nil {
+					log.Printf("Error iterating private coaches: %v", err)
+					continue
+				}
+				
+				var coach models.Coach
+				if err := doc.DataTo(&coach); err != nil {
+					log.Printf("Error parsing coach %s: %v", doc.Ref.ID, err)
+					continue
+				}
+				coaches = append(coaches, coach)
+			}
+			privateIter.Stop()
+		} else {
+			// Not authenticated - only show public coaches
+			query := fs.DB.Collection("coaches").Where("visibility", "==", "public")
+			if tag != "" {
+				query = query.Where("tags", "array-contains", tag)
+			}
+			if featured == "true" {
+				query = query.Where("featured", "==", true)
+			}
+			
+			iter := query.Documents(ctx)
+			defer iter.Stop()
+			
+			for {
+				doc, err := iter.Next()
+				if err == iterator.Done {
+					break
+				}
+				if err != nil {
+					log.Printf("Error iterating coaches: %v", err)
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list coaches"})
+					return
+				}
+				
+				var coach models.Coach
+				if err := doc.DataTo(&coach); err != nil {
+					log.Printf("Error parsing coach %s: %v", doc.Ref.ID, err)
+					continue
+				}
+				coaches = append(coaches, coach)
+			}
 		}
 
-		log.Printf("Returning %d coaches", len(coaches))
+		log.Printf("Returning %d coaches (uid=%s)", len(coaches), uid)
 		if len(coaches) == 0 {
 			c.JSON(http.StatusOK, []models.Coach{})
 		} else {
@@ -115,7 +175,7 @@ func GetCoach(fs *fsClient.Client) gin.HandlerFunc {
 }
 
 // CreateCoach creates a new coach
-func CreateCoach(fs *fsClient.Client) gin.HandlerFunc {
+func CreateCoach(fs *fsClient.Client, gm *gemini.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
 		uid := middleware.GetUID(c)
@@ -124,6 +184,56 @@ func CreateCoach(fs *fsClient.Client) gin.HandlerFunc {
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 			return
+		}
+
+		// Extract specialty from tags (first tag)
+		specialty := "general"
+		if len(req.Tags) > 0 {
+			specialty = req.Tags[0]
+		}
+
+		// ALWAYS use LLM to generate comprehensive CoachSpec
+		// The client sends basic info, we enrich it with LLM
+		if req.Title != "" && req.Promise != "" {
+			log.Printf("Generating comprehensive CoachSpec with LLM for: %s (specialty: %s)", req.Title, specialty)
+			
+			// Extract style, tone, verbosity from CoachSpec if provided
+			style := "direct"
+			tone := "balanced"
+			verbosity := "medium"
+			customPrompt := ""
+			
+			if req.CoachSpec != nil {
+				if req.CoachSpec.Style.Tone != "" {
+					tone = req.CoachSpec.Style.Tone
+				}
+				if req.CoachSpec.Style.Verbosity != "" {
+					verbosity = req.CoachSpec.Style.Verbosity
+				}
+				// Try to extract style from tone or other fields
+				if req.CoachSpec.Identity.Persona.Voice != "" {
+					customPrompt = req.CoachSpec.Identity.Persona.Voice
+				}
+			}
+			
+			// Build comprehensive CoachSpec using LLM
+			builder := services.NewCoachSpecBuilder().
+				WithSpecialty(specialty).
+				WithStyle(style).
+				WithTone(tone).
+				WithVerbosity(verbosity).
+				WithGeminiClient(gm) // Enable LLM-powered generation
+			
+			if customPrompt != "" {
+				builder = builder.WithCustomPrompt(customPrompt)
+			}
+
+			req.CoachSpec = builder.Build(req.Title, req.Promise)
+			log.Printf("LLM generated comprehensive CoachSpec with %d problem statements, %d outcomes, %d sample prompts, %d frameworks",
+				len(req.CoachSpec.Identity.ProblemStatements),
+				len(req.CoachSpec.Identity.Outcomes),
+				len(req.CoachSpec.Identity.SamplePrompts),
+				len(req.CoachSpec.Methods.Frameworks))
 		}
 
 		// Validate coach including CoachSpec
@@ -143,7 +253,8 @@ func CreateCoach(fs *fsClient.Client) gin.HandlerFunc {
 			Promise:    req.Promise,
 			Tags:       req.Tags,
 			Blueprint:  req.Blueprint,
-			CoachSpec:  req.CoachSpec, // Include CoachSpec if provided
+			AvatarURL:  req.AvatarURL, // Save avatar URL if provided
+			CoachSpec:  req.CoachSpec, // Include LLM-generated CoachSpec
 			Stats: models.CoachStats{
 				Starts:  0,
 				Saves:   0,
@@ -277,6 +388,9 @@ func UpdateCoach(fs *fsClient.Client) gin.HandlerFunc {
 		if req.Blueprint != nil {
 			updates = append(updates, firestore.Update{Path: "blueprint", Value: req.Blueprint})
 		}
+		if req.AvatarURL != "" {
+			updates = append(updates, firestore.Update{Path: "avatar_url", Value: req.AvatarURL})
+		}
 		if req.CoachSpec != nil {
 			updates = append(updates, firestore.Update{Path: "coachSpec", Value: req.CoachSpec})
 		}
@@ -352,5 +466,181 @@ func PublishCoach(fs *fsClient.Client, cfg interface{}) gin.HandlerFunc {
 
 		log.Printf("Published coach: uid=%s, coachID=%s", uid, coachID)
 		c.JSON(http.StatusOK, coach)
+	}
+}
+
+// SaveCoach saves a coach to user's saved list
+func SaveCoach(fs *fsClient.Client) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx := c.Request.Context()
+		uid := middleware.GetUID(c)
+		coachID := c.Param("id")
+
+		// Verify coach exists
+		coachDoc, err := fs.DB.Collection("coaches").Doc(coachID).Get(ctx)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "coach not found"})
+			return
+		}
+
+		var coach models.Coach
+		if err := coachDoc.DataTo(&coach); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse coach"})
+			return
+		}
+
+		// Get or create user document
+		userRef := fs.DB.Collection("users").Doc(uid)
+		userDoc, err := userRef.Get(ctx)
+		
+		var savedCoaches []string
+		if err == nil {
+			// User exists, get current saved coaches
+			var user models.User
+			if err := userDoc.DataTo(&user); err == nil {
+				savedCoaches = user.SavedCoaches
+			}
+		}
+
+		// Check if already saved
+		for _, id := range savedCoaches {
+			if id == coachID {
+				c.JSON(http.StatusOK, gin.H{"message": "coach already saved"})
+				return
+			}
+		}
+
+		// Add to saved coaches
+		savedCoaches = append(savedCoaches, coachID)
+
+		// Update user document
+		_, err = userRef.Set(ctx, map[string]interface{}{
+			"saved_coaches": savedCoaches,
+			"updated_at":    time.Now(),
+		}, firestore.MergeAll)
+		if err != nil {
+			log.Printf("Error saving coach: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save coach"})
+			return
+		}
+
+		// Increment coach saves count
+		_, err = fs.DB.Collection("coaches").Doc(coachID).Update(ctx, []firestore.Update{
+			{Path: "stats.saves", Value: firestore.Increment(1)},
+		})
+		if err != nil {
+			log.Printf("Error incrementing coach saves: %v", err)
+		}
+
+		log.Printf("Saved coach: uid=%s, coachID=%s", uid, coachID)
+		c.JSON(http.StatusOK, gin.H{"message": "coach saved successfully"})
+	}
+}
+
+// UnsaveCoach removes a coach from user's saved list
+func UnsaveCoach(fs *fsClient.Client) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx := c.Request.Context()
+		uid := middleware.GetUID(c)
+		coachID := c.Param("id")
+
+		// Get user document
+		userRef := fs.DB.Collection("users").Doc(uid)
+		userDoc, err := userRef.Get(ctx)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+			return
+		}
+
+		var user models.User
+		if err := userDoc.DataTo(&user); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse user"})
+			return
+		}
+
+		// Remove from saved coaches
+		var updatedSavedCoaches []string
+		found := false
+		for _, id := range user.SavedCoaches {
+			if id != coachID {
+				updatedSavedCoaches = append(updatedSavedCoaches, id)
+			} else {
+				found = true
+			}
+		}
+
+		if !found {
+			c.JSON(http.StatusOK, gin.H{"message": "coach was not saved"})
+			return
+		}
+
+		// Update user document
+		_, err = userRef.Update(ctx, []firestore.Update{
+			{Path: "saved_coaches", Value: updatedSavedCoaches},
+			{Path: "updated_at", Value: time.Now()},
+		})
+		if err != nil {
+			log.Printf("Error unsaving coach: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to unsave coach"})
+			return
+		}
+
+		// Decrement coach saves count
+		_, err = fs.DB.Collection("coaches").Doc(coachID).Update(ctx, []firestore.Update{
+			{Path: "stats.saves", Value: firestore.Increment(-1)},
+		})
+		if err != nil {
+			log.Printf("Error decrementing coach saves: %v", err)
+		}
+
+		log.Printf("Unsaved coach: uid=%s, coachID=%s", uid, coachID)
+		c.JSON(http.StatusOK, gin.H{"message": "coach unsaved successfully"})
+	}
+}
+
+// GetSavedCoaches returns user's saved coaches
+func GetSavedCoaches(fs *fsClient.Client) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx := c.Request.Context()
+		uid := middleware.GetUID(c)
+
+		// Get user document
+		userDoc, err := fs.DB.Collection("users").Doc(uid).Get(ctx)
+		if err != nil {
+			c.JSON(http.StatusOK, []models.Coach{})
+			return
+		}
+
+		var user models.User
+		if err := userDoc.DataTo(&user); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse user"})
+			return
+		}
+
+		if len(user.SavedCoaches) == 0 {
+			c.JSON(http.StatusOK, []models.Coach{})
+			return
+		}
+
+		// Fetch all saved coaches
+		var coaches []models.Coach
+		for _, coachID := range user.SavedCoaches {
+			coachDoc, err := fs.DB.Collection("coaches").Doc(coachID).Get(ctx)
+			if err != nil {
+				log.Printf("Error fetching saved coach %s: %v", coachID, err)
+				continue
+			}
+
+			var coach models.Coach
+			if err := coachDoc.DataTo(&coach); err != nil {
+				log.Printf("Error parsing saved coach %s: %v", coachID, err)
+				continue
+			}
+
+			coaches = append(coaches, coach)
+		}
+
+		log.Printf("Returning %d saved coaches for uid=%s", len(coaches), uid)
+		c.JSON(http.StatusOK, coaches)
 	}
 }

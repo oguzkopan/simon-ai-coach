@@ -337,8 +337,24 @@ struct SessionRowCard: View {
 extension LibraryView {
     private var myProgressSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("My Progress")
-                .font(theme.font(22, weight: .bold))
+            HStack {
+                Text("My Progress")
+                    .font(theme.font(22, weight: .bold))
+                
+                Spacer()
+                
+                if vm.activePlans.count > 3 {
+                    NavigationLink(destination: AllPlansView(viewModel: PlanViewModel(apiClient: SimonAPIClient.shared))) {
+                        HStack(spacing: 4) {
+                            Text("More")
+                                .font(theme.font(14, weight: .medium))
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 12))
+                        }
+                        .foregroundColor(theme.accentPrimary)
+                    }
+                }
+            }
             
             if vm.isLoadingProgress {
                 // Loading skeleton
@@ -349,9 +365,9 @@ extension LibraryView {
                 }
             } else {
                 VStack(spacing: 12) {
-                    // Active Plans
-                    ForEach(vm.activePlans) { plan in
-                        NavigationLink(destination: PlanView()) {
+                    // Active Plans (show max 3)
+                    ForEach(vm.activePlans.prefix(3)) { plan in
+                        NavigationLink(destination: SinglePlanView(planId: plan.id)) {
                             BeautifulProgressPlanCard(plan: plan)
                         }
                         .buttonStyle(.plain)

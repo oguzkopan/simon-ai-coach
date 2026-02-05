@@ -14,7 +14,7 @@ final class HomeViewModel: ObservableObject {
     @Published var toast: ToastMessage?
     @Published var isOffline = false
     
-    let categories = ["All", "Focus", "Planning", "Creativity", "Decision", "Health", "Confidence"]
+    let categories = ["All", "Saved", "Focus", "Planning", "Creativity", "Decision", "Health", "Confidence"]
     let apiClient: SimonAPI
     
     private let networkMonitor = NetworkMonitor.shared
@@ -51,20 +51,29 @@ final class HomeViewModel: ObservableObject {
         errorMessage = nil
         
         loadTask = Task {
-            // For "All" category, pass nil to get all coaches
-            let tag: String?
-            if selectedCategory == "All" || selectedCategory == nil {
-                tag = nil
-            } else {
-                tag = selectedCategory?.lowercased()
-            }
-            
             do {
-                let fetchedCoaches = try await apiClient.listCoaches(tag: tag, featured: nil)
-                
-                guard !Task.isCancelled else { return }
-                
-                coaches = fetchedCoaches
+                // Handle "Saved" category separately
+                if selectedCategory == "Saved" {
+                    let fetchedCoaches = try await apiClient.getSavedCoaches()
+                    
+                    guard !Task.isCancelled else { return }
+                    
+                    coaches = fetchedCoaches
+                } else {
+                    // For "All" category, pass nil to get all coaches
+                    let tag: String?
+                    if selectedCategory == "All" || selectedCategory == nil {
+                        tag = nil
+                    } else {
+                        tag = selectedCategory?.lowercased()
+                    }
+                    
+                    let fetchedCoaches = try await apiClient.listCoaches(tag: tag, featured: nil)
+                    
+                    guard !Task.isCancelled else { return }
+                    
+                    coaches = fetchedCoaches
+                }
                 
                 HapticManager.shared.light()
             } catch let error as APIError {

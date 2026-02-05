@@ -88,8 +88,10 @@ type CreateSessionRequest struct {
 
 // SendMessageRequest represents the request to send a message
 type SendMessageRequest struct {
-	UserText    string       `json:"user_text"`
-	Attachments []Attachment `json:"attachments,omitempty"`
+	UserText      string       `json:"user_text"`
+	Attachments   []Attachment `json:"attachments,omitempty"`
+	UserTimezone  string       `json:"user_timezone,omitempty"`   // e.g., "America/New_York"
+	UserLocalTime string       `json:"user_local_time,omitempty"` // ISO 8601 in user's timezone
 }
 
 // Now returns the current time (helper for consistency)
@@ -108,6 +110,7 @@ type User struct {
 	Preferences       Preferences        `firestore:"preferences" json:"preferences"`
 	MemorySummary     string             `firestore:"memory_summary,omitempty" json:"memory_summary,omitempty"`
 	Commitments       []Commitment       `firestore:"commitments,omitempty" json:"commitments,omitempty"`
+	SavedCoaches      []string           `firestore:"saved_coaches,omitempty" json:"saved_coaches,omitempty"`
 	SubscriptionCache *SubscriptionCache `firestore:"subscription_cache,omitempty" json:"subscription_cache,omitempty"`
 	CreatedAt         time.Time          `firestore:"created_at" json:"created_at"`
 	UpdatedAt         time.Time          `firestore:"updated_at" json:"updated_at"`

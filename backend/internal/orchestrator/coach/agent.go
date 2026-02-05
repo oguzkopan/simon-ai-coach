@@ -61,7 +61,14 @@ func (ca *CoachAgent) Generate(
 	stream chan<- SSEEvent,
 ) (*CoachOutput, error) {
 	// Build system prompt from CoachSpec
-	systemPrompt := ca.buildSystemPrompt(contextPacket.CoachSpec, contextPacket.User, contextPacket.ActivePlans, contextPacket.UserContextSummary)
+	systemPrompt := ca.buildSystemPrompt(
+		contextPacket.CoachSpec,
+		contextPacket.User,
+		contextPacket.ActivePlans,
+		contextPacket.UserContextSummary,
+		contextPacket.UserTimezone,
+		contextPacket.UserLocalTime,
+	)
 
 	// Build tool schemas for function calling
 	toolSchemas := ca.buildToolSchemas(contextPacket.CoachSpec)
@@ -289,19 +296,62 @@ func (ca *CoachAgent) buildSystemPrompt(
 	user *models.User,
 	plans []models.Plan,
 	userContextSummary string,
+	userTimezone string,
+	userLocalTime string,
 ) string {
 	var prompt strings.Builder
 
-	// CRITICAL: Current date/time context
+	// CRITICAL: Current date/time context - USE USER'S TIMEZONE
 	now := time.Now()
-	prompt.WriteString(fmt.Sprintf("CURRENT DATE AND TIME: %s (UTC)\n", now.UTC().Format(time.RFC3339)))
-	prompt.WriteString(fmt.Sprintf("Local format: %s\n", now.Format("Monday, January 2, 2006 at 3:04 PM MST")))
-	prompt.WriteString(fmt.Sprintf("Day of week: %s\n\n", now.Format("Monday")))
-	prompt.WriteString("IMPORTANT: When creating calendar events, notifications, or reminders:\n")
-	prompt.WriteString("- Use the CURRENT DATE AND TIME above as your reference\n")
-	prompt.WriteString("- Calculate future dates/times relative to this current time\n")
-	prompt.WriteString("- Always use ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ) for all date/time fields\n")
-	prompt.WriteString("- Example: If user says 'tomorrow at 9am' and today is 2026-02-02, use '2026-02-03T09:00:00Z'\n\n")
+	
+	// Parse user's local time if provided
+	var userTime time.Time
+	var userLoc *time.Location
+	if userLocalTime != "" && userTimezone != "" {
+		// Parse user's timezone
+		loc, err := time.LoadLocation(userTimezone)
+		if err == nil {
+			userLoc = loc
+			// Parse user's local time
+			parsedTime, err := time.Parse(time.RFC3339, userLocalTime)
+			if err == nil {
+				userTime = parsedTime
+			} else {
+				// Fallback to server time in user's timezone
+				userTime = now.In(loc)
+			}
+		} else {
+			// Fallback to UTC if timezone is invalid
+			userTime = now.UTC()
+			userLoc = time.UTC
+		}
+	} else {
+		// Fallback to UTC if no timezone provided
+		userTime = now.UTC()
+		userLoc = time.UTC
+	}
+	
+	// Display user's local time prominently
+	prompt.WriteString("═══════════════════════════════════════════════════════════\n")
+	prompt.WriteString("USER'S CURRENT DATE AND TIME (THIS IS CRITICAL!):\n")
+	prompt.WriteString(fmt.Sprintf("Local Time: %s\n", userTime.Format("Monday, January 2, 2006 at 3:04 PM MST")))
+	prompt.WriteString(fmt.Sprintf("ISO Format: %s\n", userTime.Format(time.RFC3339)))
+	prompt.WriteString(fmt.Sprintf("Timezone: %s\n", userTimezone))
+	prompt.WriteString(fmt.Sprintf("Day of Week: %s\n", userTime.Format("Monday")))
+	prompt.WriteString("═══════════════════════════════════════════════════════════\n\n")
+	
+	prompt.WriteString("CRITICAL INSTRUCTIONS FOR TIME-BASED ACTIONS:\n")
+	prompt.WriteString("1. The time above is the USER'S LOCAL TIME - use this as your reference!\n")
+	prompt.WriteString("2. When user says 'tomorrow at 9am', calculate based on THEIR timezone\n")
+	prompt.WriteString("3. Always use ISO 8601 format with timezone: YYYY-MM-DDTHH:MM:SS+HH:MM\n")
+	prompt.WriteString(fmt.Sprintf("4. Example: If user says 'tomorrow at 9am' and today is %s,\n", userTime.Format("2006-01-02")))
+	
+	// Calculate tomorrow at 9am in user's timezone
+	tomorrow := userTime.AddDate(0, 0, 1)
+	tomorrowAt9 := time.Date(tomorrow.Year(), tomorrow.Month(), tomorrow.Day(), 9, 0, 0, 0, userLoc)
+	prompt.WriteString(fmt.Sprintf("   use: %s\n", tomorrowAt9.Format(time.RFC3339)))
+	prompt.WriteString("5. NEVER use UTC times - always use the user's timezone!\n")
+	prompt.WriteString("6. When creating events/reminders, the times MUST match what the user expects in THEIR timezone\n\n")
 
 	// Identity
 	prompt.WriteString(fmt.Sprintf("You are %s, a %s coach.\n\n",

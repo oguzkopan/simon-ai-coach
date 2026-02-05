@@ -19,49 +19,48 @@ struct MomentView: View {
     
     var body: some View {
         NavigationStack {
-            ZStack {
-                // Background
-                Color(.systemGroupedBackground)
-                    .ignoresSafeArea()
-                
-                ScrollView {
-                    VStack(spacing: 20) {
-                        // Header
-                        headerSection
-                            .padding(.horizontal, 16)
-                            .padding(.top, 12)
+            ScrollView {
+                VStack(spacing: 24) {
+                    // Centered prompt text
+                    VStack(spacing: 12) {
+                        Text("What's on your mind?")
+                            .font(theme.font(28, weight: .bold))
+                            .foregroundColor(.primary)
+                            .multilineTextAlignment(.center)
                         
-                        // Main Input Card
-                        inputCard
-                            .padding(.horizontal, 16)
-                        
-                        // Upcoming Events Section (always shown)
-                        upcomingSection
-                        
-                        // Routines Section
-                        if !vm.routines.isEmpty {
-                            routinesSection
-                        }
-                        
-                        // Divider
-                        dividerSection
-                            .padding(.horizontal, 16)
-                        
-                        // Quick Templates
-                        templatesSection
-                            .padding(.horizontal, 16)
-                        
-                        // Error message
-                        if let errorMessage = vm.errorMessage {
-                            errorCard(errorMessage)
-                                .padding(.horizontal, 16)
-                        }
+                        Text("Share what you're thinking, feeling, or working on")
+                            .font(theme.font(15))
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
                     }
-                    .padding(.bottom, 100) // Space for tab bar
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
+                    
+                    // Main Input Card (Voice/Text combined)
+                    mainInputCard
+                        .padding(.horizontal, 20)
+                    
+                    // Upcoming Events Section
+                    upcomingSection
+                    
+                    // Routines Section
+                    if !vm.routines.isEmpty {
+                        routinesSection
+                    }
+                    
+                    // Quick Templates
+                    templatesSection
+                        .padding(.horizontal, 20)
+                    
+                    // Error message
+                    if let errorMessage = vm.errorMessage {
+                        errorCard(errorMessage)
+                            .padding(.horizontal, 20)
+                    }
                 }
             }
-            .navigationTitle("Moment")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
             .onTapGesture {
                 isTextFieldFocused = false
             }
@@ -83,7 +82,6 @@ struct MomentView: View {
             }
         }
         .task {
-            // Load all data in parallel on first appearance
             async let moments: Void = vm.loadRemainingMoments()
             async let routines: Void = vm.loadRoutines()
             async let events: Void = vm.loadUpcomingEvents()
@@ -93,47 +91,17 @@ struct MomentView: View {
         }
     }
     
-    // MARK: - Header Section
+    // MARK: - Main Input Card (Voice/Text Combined)
     
-    private var headerSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("What's on your mind?")
-                .font(theme.font(28, weight: .bold))
-                .foregroundColor(.primary)
-            
-            Text("Share what you're thinking, feeling, or working on")
-                .font(theme.font(15))
-                .foregroundColor(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-    
-    // MARK: - Input Card
-    
-    private var inputCard: some View {
+    private var mainInputCard: some View {
         VStack(spacing: 0) {
-            // Mode Toggle
+            // Mode Toggle (Voice is default)
             HStack(spacing: 0) {
-                // Text Mode Button
-                Button {
-                    vm.toggleInputMode()
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "keyboard")
-                            .font(.system(size: 14, weight: .medium))
-                        Text("Text")
-                            .font(theme.font(13, weight: .medium))
-                    }
-                    .foregroundColor(vm.inputMode == .text ? .white : .secondary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(vm.inputMode == .text ? theme.accentPrimary : Color.clear)
-                    .cornerRadius(8)
-                }
-                
                 // Voice Mode Button
                 Button {
-                    vm.toggleInputMode()
+                    if vm.inputMode != .voice {
+                        vm.inputMode = .voice
+                    }
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "waveform")
@@ -147,6 +115,25 @@ struct MomentView: View {
                     .background(vm.inputMode == .voice ? theme.accentPrimary : Color.clear)
                     .cornerRadius(8)
                 }
+                
+                // Text Mode Button
+                Button {
+                    if vm.inputMode != .text {
+                        vm.inputMode = .text
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "keyboard")
+                            .font(.system(size: 14, weight: .medium))
+                        Text("Text")
+                            .font(theme.font(13, weight: .medium))
+                    }
+                    .foregroundColor(vm.inputMode == .text ? .white : .secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(vm.inputMode == .text ? theme.accentPrimary : Color.clear)
+                    .cornerRadius(8)
+                }
             }
             .padding(4)
             .background(Color(.systemGray6))
@@ -157,29 +144,11 @@ struct MomentView: View {
             Divider()
                 .padding(.top, 12)
             
-            // Input Area
-            if vm.inputMode == .text {
-                textInputArea
-            } else {
+            // Input Area based on mode
+            if vm.inputMode == .voice {
                 voiceInputArea
-            }
-            
-            // Attached Files Preview
-            if !vm.attachedFiles.isEmpty {
-                Divider()
-                
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(vm.attachedFiles) { file in
-                            AttachmentPreview(file: file) {
-                                vm.removeAttachment(file)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                }
-                .background(Color(.systemGray6).opacity(0.5))
+            } else {
+                textInputArea
             }
             
             Divider()
@@ -188,8 +157,188 @@ struct MomentView: View {
             bottomActionBar
         }
         .background(Color(.systemBackground))
-        .cornerRadius(16)
-        .shadow(color: Color.black.opacity(0.05), radius: 8, x: 0, y: 2)
+        .cornerRadius(20)
+        .shadow(color: Color.black.opacity(0.05), radius: 10, x: 0, y: 4)
+    }
+    
+    // MARK: - Voice Input Area
+    
+    private var voiceInputArea: some View {
+        VStack(spacing: 16) {
+            if vm.isRecording {
+                // Recording UI
+                VStack(spacing: 20) {
+                    // Waveform Visualization
+                    HStack(alignment: .center, spacing: 2) {
+                        ForEach(0..<vm.audioLevels.count, id: \.self) { index in
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(theme.accentPrimary)
+                                .frame(width: 3, height: max(4, vm.audioLevels[index] * 60))
+                                .animation(.easeInOut(duration: 0.1), value: vm.audioLevels[index])
+                        }
+                    }
+                    .frame(height: 60)
+                    
+                    // Recording Duration
+                    Text(formatDuration(vm.recordingDuration))
+                        .font(theme.font(32, weight: .bold))
+                        .foregroundColor(.primary)
+                        .monospacedDigit()
+                    
+                    Text("Recording...")
+                        .font(theme.font(16))
+                        .foregroundColor(.secondary)
+                    
+                    // Recording Controls
+                    HStack(spacing: 32) {
+                        // Cancel Button
+                        Button {
+                            vm.cancelVoiceRecording()
+                        } label: {
+                            VStack(spacing: 8) {
+                                ZStack {
+                                    Circle()
+                                        .fill(Color(.systemGray5))
+                                        .frame(width: 64, height: 64)
+                                    
+                                    Image(systemName: "xmark")
+                                        .font(.system(size: 24, weight: .semibold))
+                                        .foregroundColor(.secondary)
+                                }
+                                
+                                Text("Cancel")
+                                    .font(theme.font(14))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        
+                        // Save Button (changed from Send)
+                        Button {
+                            vm.stopVoiceRecording()
+                        } label: {
+                            VStack(spacing: 8) {
+                                ZStack {
+                                    Circle()
+                                        .fill(theme.accentPrimary)
+                                        .frame(width: 80, height: 80)
+                                    
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 32, weight: .bold))
+                                        .foregroundColor(.white)
+                                }
+                                .shadow(color: theme.accentPrimary.opacity(0.3), radius: 12, x: 0, y: 6)
+                                
+                                Text("Save")
+                                    .font(theme.font(14, weight: .semibold))
+                                    .foregroundColor(theme.accentPrimary)
+                            }
+                        }
+                    }
+                }
+                .padding(.vertical, 40)
+                .frame(maxWidth: .infinity)
+            } else if vm.hasRecordedAudio {
+                // Playback UI - After recording is saved
+                VStack(spacing: 20) {
+                    // Audio Player
+                    HStack(spacing: 16) {
+                        // Play/Pause Button
+                        Button {
+                            vm.toggleAudioPlayback()
+                        } label: {
+                            ZStack {
+                                Circle()
+                                    .fill(theme.accentPrimary)
+                                    .frame(width: 56, height: 56)
+                                
+                                Image(systemName: vm.isPlayingAudio ? "pause.fill" : "play.fill")
+                                    .font(.system(size: 24, weight: .semibold))
+                                    .foregroundColor(.white)
+                            }
+                        }
+                        
+                        // Waveform or Progress
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Recorded Audio")
+                                .font(theme.font(15, weight: .semibold))
+                                .foregroundColor(.primary)
+                            
+                            HStack(spacing: 8) {
+                                Text(formatDuration(vm.audioPlaybackPosition))
+                                    .font(theme.font(13))
+                                    .foregroundColor(.secondary)
+                                    .monospacedDigit()
+                                
+                                GeometryReader { geometry in
+                                    ZStack(alignment: .leading) {
+                                        RoundedRectangle(cornerRadius: 2)
+                                            .fill(Color(.systemGray5))
+                                            .frame(height: 4)
+                                        
+                                        RoundedRectangle(cornerRadius: 2)
+                                            .fill(theme.accentPrimary)
+                                            .frame(width: geometry.size.width * CGFloat(vm.savedAudioDuration > 0 ? vm.audioPlaybackPosition / vm.savedAudioDuration : 0), height: 4)
+                                    }
+                                }
+                                .frame(height: 4)
+                                
+                                Text(formatDuration(vm.savedAudioDuration))
+                                    .font(theme.font(13))
+                                    .foregroundColor(.secondary)
+                                    .monospacedDigit()
+                            }
+                        }
+                        
+                        // Delete Button
+                        Button {
+                            vm.deleteRecordedAudio()
+                        } label: {
+                            Image(systemName: "trash")
+                                .font(.system(size: 20))
+                                .foregroundColor(.red)
+                        }
+                    }
+                    .padding(16)
+                    .background(Color(.systemGray6).opacity(0.5))
+                    .cornerRadius(12)
+                }
+                .padding(.vertical, 20)
+                .padding(.horizontal, 16)
+            } else {
+                // Ready to Record UI - Tap to start
+                Button {
+                    vm.startVoiceRecording()
+                } label: {
+                    VStack(spacing: 20) {
+                        ZStack {
+                            Circle()
+                                .fill(theme.accentPrimary.opacity(0.1))
+                                .frame(width: 100, height: 100)
+                            
+                            Circle()
+                                .fill(theme.accentPrimary.opacity(0.2))
+                                .frame(width: 80, height: 80)
+                            
+                            Image(systemName: "mic.fill")
+                                .font(.system(size: 36))
+                                .foregroundColor(theme.accentPrimary)
+                        }
+                        
+                        Text("Tap to start recording")
+                            .font(theme.font(17, weight: .semibold))
+                            .foregroundColor(.primary)
+                        
+                        Text("Voice is the fastest way to share")
+                            .font(theme.font(15))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 40)
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(minHeight: 120)
     }
     
     // MARK: - Text Input Area
@@ -213,125 +362,6 @@ struct MomentView: View {
                 .scrollContentBackground(.hidden)
                 .focused($isTextFieldFocused)
         }
-        .background(Color(.systemBackground))
-    }
-    
-    // MARK: - Voice Input Area
-    
-    private var voiceInputArea: some View {
-        VStack(spacing: 16) {
-            if vm.isRecording {
-                // Recording UI
-                VStack(spacing: 20) {
-                    // Waveform Visualization
-                    HStack(alignment: .center, spacing: 2) {
-                        ForEach(0..<vm.audioLevels.count, id: \.self) { index in
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill(theme.accentPrimary)
-                                .frame(width: 3, height: max(4, vm.audioLevels[index] * 60))
-                                .animation(.easeInOut(duration: 0.1), value: vm.audioLevels[index])
-                        }
-                    }
-                    .frame(height: 60)
-                    
-                    // Recording Duration
-                    Text(formatDuration(vm.recordingDuration))
-                        .font(theme.font(24, weight: .semibold))
-                        .foregroundColor(.primary)
-                        .monospacedDigit()
-                    
-                    Text("Recording...")
-                        .font(theme.font(14))
-                        .foregroundColor(.secondary)
-                    
-                    // Recording Controls
-                    HStack(spacing: 24) {
-                        // Cancel Button
-                        Button {
-                            vm.cancelVoiceRecording()
-                        } label: {
-                            VStack(spacing: 8) {
-                                ZStack {
-                                    Circle()
-                                        .fill(Color(.systemGray5))
-                                        .frame(width: 56, height: 56)
-                                    
-                                    Image(systemName: "xmark")
-                                        .font(.system(size: 20, weight: .semibold))
-                                        .foregroundColor(.secondary)
-                                }
-                                
-                                Text("Cancel")
-                                    .font(theme.font(12))
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                        
-                        // Stop & Send Button
-                        Button {
-                            vm.stopVoiceRecording()
-                        } label: {
-                            VStack(spacing: 8) {
-                                ZStack {
-                                    Circle()
-                                        .fill(theme.accentPrimary)
-                                        .frame(width: 72, height: 72)
-                                    
-                                    Image(systemName: "checkmark")
-                                        .font(.system(size: 28, weight: .bold))
-                                        .foregroundColor(.white)
-                                }
-                                .shadow(color: theme.accentPrimary.opacity(0.3), radius: 8, x: 0, y: 4)
-                                
-                                Text("Send")
-                                    .font(theme.font(12, weight: .medium))
-                                    .foregroundColor(theme.accentPrimary)
-                            }
-                        }
-                    }
-                }
-                .padding(.vertical, 24)
-                .frame(maxWidth: .infinity)
-            } else {
-                // Ready to Record UI
-                VStack(spacing: 16) {
-                    ZStack {
-                        Circle()
-                            .fill(theme.accentPrimary.opacity(0.1))
-                            .frame(width: 80, height: 80)
-                        
-                        Circle()
-                            .fill(theme.accentPrimary.opacity(0.2))
-                            .frame(width: 64, height: 64)
-                        
-                        Image(systemName: "mic.fill")
-                            .font(.system(size: 28))
-                            .foregroundColor(theme.accentPrimary)
-                    }
-                    .padding(.top, 20)
-                    
-                    Text("Tap to start recording")
-                        .font(theme.font(15))
-                        .foregroundColor(.secondary)
-                    
-                    Button {
-                        vm.startVoiceRecording()
-                    } label: {
-                        Text("Start Recording")
-                            .font(theme.font(15, weight: .semibold))
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(theme.accentPrimary)
-                            .cornerRadius(12)
-                    }
-                    .padding(.horizontal, 32)
-                    .padding(.bottom, 20)
-                }
-            }
-        }
-        .frame(minHeight: 120)
-        .background(Color(.systemBackground))
     }
     
     // MARK: - Bottom Action Bar
@@ -351,44 +381,48 @@ struct MomentView: View {
             
             Spacer()
             
-            // Character count (text mode only)
-            if vm.inputMode == .text && !vm.freeformInput.isEmpty {
-                Text("\(vm.freeformInput.count)")
-                    .font(theme.font(12))
-                    .foregroundColor(.secondary)
-            }
-            
-            // Send Button (text mode only)
-            if vm.inputMode == .text {
-                Button(action: { 
-                    isTextFieldFocused = false
+            // Send Button (for both voice and text)
+            Button(action: { 
+                isTextFieldFocused = false
+                if vm.inputMode == .voice && vm.hasRecordedAudio {
+                    // Send voice recording
+                    vm.startFreeform() // TODO: Implement voice sending
+                } else if vm.inputMode == .text {
+                    // Send text
                     vm.startFreeform()
-                }) {
-                    HStack(spacing: 6) {
-                        if vm.isLoading {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                .scaleEffect(0.8)
-                        } else {
-                            Image(systemName: "arrow.up")
-                                .font(.system(size: 16, weight: .semibold))
-                        }
-                    }
-                    .foregroundColor(.white)
-                    .frame(width: 36, height: 36)
-                    .background(
-                        (!vm.freeformInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !vm.isLoading) 
-                            ? theme.accentPrimary 
-                            : Color.secondary.opacity(0.3)
-                    )
-                    .clipShape(Circle())
                 }
-                .disabled(vm.freeformInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || vm.isLoading)
+            }) {
+                HStack(spacing: 6) {
+                    if vm.isLoading {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .scaleEffect(0.8)
+                    } else {
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 16, weight: .semibold))
+                    }
+                }
+                .foregroundColor(.white)
+                .frame(width: 36, height: 36)
+                .background(
+                    (canSend && !vm.isLoading) 
+                        ? theme.accentPrimary 
+                        : Color.secondary.opacity(0.3)
+                )
+                .clipShape(Circle())
             }
+            .disabled(!canSend || vm.isLoading)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(Color(.systemBackground))
+    }
+    
+    private var canSend: Bool {
+        if vm.inputMode == .voice {
+            return vm.hasRecordedAudio
+        } else {
+            return !vm.freeformInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
     }
     
     // MARK: - Helper Functions
@@ -545,60 +579,6 @@ struct MomentView: View {
         }
     }
     
-    // MARK: - My Progress Section
-    
-    private var myProgressSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Image(systemName: "chart.line.uptrend.xyaxis")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(theme.accentPrimary)
-                
-                Text("MY PROGRESS")
-                    .font(theme.font(13, weight: .semibold))
-                    .foregroundColor(.secondary)
-                    .tracking(1)
-                
-                Spacer()
-            }
-            .padding(.horizontal, 16)
-            
-            if vm.isLoadingProgress {
-                // Skeleton loading - show all at once
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(0..<2, id: \.self) { _ in
-                            ProgressCardSkeleton()
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                }
-            } else if vm.activePlans.isEmpty && vm.recentCheckins.isEmpty {
-                // Empty state
-                EmptyProgressState()
-                    .padding(.horizontal, 16)
-            } else {
-                VStack(spacing: 12) {
-                    // Active Plans
-                    ForEach(vm.activePlans) { plan in
-                        NavigationLink(destination: PlanView()) {
-                            ProgressPlanCard(plan: plan)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    
-                    // Recent Check-ins (if any)
-                    ForEach(vm.recentCheckins) { checkin in
-                        ProgressCheckinCard(checkin: checkin)
-                    }
-                }
-                .padding(.horizontal, 16)
-            }
-        }
-    }
-    
-    // MARK: - Routines Section
-    
     private var routinesSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -708,50 +688,6 @@ struct MomentView: View {
         }
     }
     
-    // MARK: - Usage Card
-    
-    private var usageCard: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(theme.accentTint)
-                    .frame(width: 40, height: 40)
-                
-                Image(systemName: "sparkles")
-                    .font(.system(size: 18))
-                    .foregroundColor(theme.accentPrimary)
-            }
-            
-            VStack(alignment: .leading, spacing: 4) {
-                Text("\(vm.remainingMoments) moments left today")
-                    .font(theme.font(15, weight: .semibold))
-                    .foregroundColor(.primary)
-                
-                Text("Upgrade for unlimited access")
-                    .font(theme.font(13))
-                    .foregroundColor(.secondary)
-            }
-            
-            Spacer()
-            
-            Button("Upgrade") {
-                vm.showPaywall = true
-            }
-            .font(theme.font(14, weight: .semibold))
-            .foregroundColor(.white)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .background(theme.accentPrimary)
-            .cornerRadius(8)
-        }
-        .padding(16)
-        .background(Color(.systemBackground))
-        .cornerRadius(12)
-        .shadow(color: Color.black.opacity(0.05), radius: 8, x: 0, y: 2)
-    }
-    
-    // MARK: - Error Card
-    
     private func errorCard(_ message: String) -> some View {
         HStack(spacing: 12) {
             Image(systemName: "exclamationmark.triangle.fill")
@@ -776,9 +712,7 @@ struct MomentView: View {
         .background(Color.red.opacity(0.1))
         .cornerRadius(12)
     }
-    
-    // MARK: - Helper Functions
-    
+        
     private func formatEventTime(_ date: Date?) -> String {
         guard let date = date else { return "" }
         
@@ -801,7 +735,6 @@ struct MomentView: View {
     }
 }
 
-// MARK: - Interactive Event Card
 
 struct InteractiveEventCard: View {
     let icon: String
@@ -953,8 +886,6 @@ struct RoutineCard: View {
     }
 }
 
-// MARK: - Template Card
-
 struct TemplateCard: View {
     let template: MomentTemplate
     let isLoading: Bool
@@ -1006,46 +937,6 @@ struct TemplateCard: View {
         .disabled(isLoading)
     }
 }
-
-// MARK: - Attachment Preview
-
-struct AttachmentPreview: View {
-    let file: AttachedFile
-    let onRemove: () -> Void
-    
-    @EnvironmentObject private var theme: ThemeStore
-    
-    var body: some View {
-        ZStack(alignment: .topTrailing) {
-            if file.type == .image, let uiImage = UIImage(data: file.data) {
-                Image(uiImage: uiImage)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 60, height: 60)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-            } else {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color(.systemGray5))
-                    .frame(width: 60, height: 60)
-                    .overlay(
-                        Image(systemName: "doc.fill")
-                            .foregroundColor(.secondary)
-                    )
-            }
-            
-            Button(action: onRemove) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 18))
-                    .foregroundColor(.white)
-                    .background(Circle().fill(Color.black.opacity(0.6)))
-            }
-            .offset(x: 6, y: -6)
-        }
-    }
-}
-
-
-// MARK: - Event Detail Sheet
 
 struct EventDetailSheet: View {
     let event: CalendarEventRecord
@@ -1139,8 +1030,6 @@ struct EventDetailSheet: View {
     }
 }
 
-// MARK: - Reminder Detail Sheet
-
 struct ReminderDetailSheet: View {
     let reminder: ReminderRecord
     let onDismiss: () -> Void
@@ -1228,8 +1117,6 @@ struct ReminderDetailSheet: View {
     }
 }
 
-// MARK: - Notification Detail Sheet
-
 struct NotificationDetailSheet: View {
     let notification: ScheduledNotificationRecord
     let onDismiss: () -> Void
@@ -1301,8 +1188,6 @@ struct NotificationDetailSheet: View {
     }
 }
 
-// MARK: - Detail Row Component
-
 struct DetailRow: View {
     let icon: String
     let label: String
@@ -1332,9 +1217,6 @@ struct DetailRow: View {
         .padding(.vertical, 8)
     }
 }
-
-
-// MARK: - Event Card Skeleton
 
 struct EventCardSkeleton: View {
     @EnvironmentObject private var theme: ThemeStore
@@ -1386,7 +1268,6 @@ struct EventCardSkeleton: View {
     }
 }
 
-// MARK: - Empty Upcoming State
 
 struct EmptyUpcomingState: View {
     @EnvironmentObject private var theme: ThemeStore
@@ -1419,189 +1300,6 @@ struct EmptyUpcomingState: View {
         }
         .frame(width: 160)
         .padding(12)
-        .background(Color(.systemGray6).opacity(0.3))
-        .cornerRadius(12)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color(.systemGray5), style: StrokeStyle(lineWidth: 1, dash: [5, 5]))
-        )
-    }
-}
-
-
-// MARK: - Progress Plan Card
-
-struct ProgressPlanCard: View {
-    let plan: Plan
-    @EnvironmentObject private var theme: ThemeStore
-    
-    var completedMilestones: Int {
-        plan.milestones.filter { $0.status == .completed }.count
-    }
-    
-    var pendingActions: Int {
-        plan.nextActions.filter { $0.status == .pending }.count
-    }
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
-                ZStack {
-                    Circle()
-                        .fill(Color.blue.opacity(0.1))
-                        .frame(width: 40, height: 40)
-                    
-                    Image(systemName: "target")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.blue)
-                }
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(plan.title)
-                        .font(theme.font(15, weight: .semibold))
-                        .foregroundColor(.primary)
-                        .lineLimit(1)
-                    
-                    Text("\(completedMilestones)/\(plan.milestones.count) milestones • \(pendingActions) actions")
-                        .font(theme.font(13))
-                        .foregroundColor(.secondary)
-                }
-                
-                Spacer()
-                
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.secondary)
-            }
-            
-            // Progress bar
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(Color(.systemGray5))
-                        .frame(height: 6)
-                    
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(Color.blue)
-                        .frame(width: geometry.size.width * CGFloat(completedMilestones) / CGFloat(max(plan.milestones.count, 1)), height: 6)
-                }
-            }
-            .frame(height: 6)
-        }
-        .padding(16)
-        .background(Color(.systemBackground))
-        .cornerRadius(12)
-        .shadow(color: Color.black.opacity(0.05), radius: 4, x: 0, y: 2)
-    }
-}
-
-// MARK: - Progress Checkin Card
-
-struct ProgressCheckinCard: View {
-    let checkin: Checkin
-    @EnvironmentObject private var theme: ThemeStore
-    
-    var body: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(Color.green.opacity(0.1))
-                    .frame(width: 40, height: 40)
-                
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(.green)
-            }
-            
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Check-in Schedule")
-                    .font(theme.font(15, weight: .semibold))
-                    .foregroundColor(.primary)
-                
-                Text(checkin.cadence.kind.capitalized)
-                    .font(theme.font(13))
-                    .foregroundColor(.secondary)
-            }
-            
-            Spacer()
-            
-            VStack(alignment: .trailing, spacing: 4) {
-                Text(checkin.status.capitalized)
-                    .font(theme.font(12, weight: .medium))
-                    .foregroundColor(checkin.status == "active" ? .green : .secondary)
-            }
-        }
-        .padding(16)
-        .background(Color(.systemBackground))
-        .cornerRadius(12)
-        .shadow(color: Color.black.opacity(0.05), radius: 4, x: 0, y: 2)
-    }
-}
-
-// MARK: - Progress Card Skeleton
-
-struct ProgressCardSkeleton: View {
-    @EnvironmentObject private var theme: ThemeStore
-    @State private var isAnimating = false
-    
-    var body: some View {
-        HStack(spacing: 12) {
-            Circle()
-                .fill(Color(.systemGray5))
-                .frame(width: 40, height: 40)
-            
-            VStack(alignment: .leading, spacing: 6) {
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color(.systemGray5))
-                    .frame(height: 16)
-                
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color(.systemGray5))
-                    .frame(width: 120, height: 14)
-            }
-            
-            Spacer()
-        }
-        .padding(16)
-        .background(Color(.systemBackground))
-        .cornerRadius(12)
-        .shadow(color: Color.black.opacity(0.05), radius: 4, x: 0, y: 2)
-        .opacity(isAnimating ? 0.5 : 1.0)
-        .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: isAnimating)
-        .onAppear {
-            isAnimating = true
-        }
-    }
-}
-
-// MARK: - Empty Progress State
-
-struct EmptyProgressState: View {
-    @EnvironmentObject private var theme: ThemeStore
-    
-    var body: some View {
-        VStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(Color(.systemGray6))
-                    .frame(width: 48, height: 48)
-                
-                Image(systemName: "chart.line.uptrend.xyaxis")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundColor(.secondary)
-            }
-            
-            Text("No active plans or check-ins")
-                .font(theme.font(14, weight: .medium))
-                .foregroundColor(.secondary)
-            
-            Text("Start a coaching session to create plans and track progress")
-                .font(theme.font(12))
-                .foregroundColor(.secondary.opacity(0.7))
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(24)
         .background(Color(.systemGray6).opacity(0.3))
         .cornerRadius(12)
         .overlay(

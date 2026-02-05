@@ -527,5 +527,7 @@ class SSEStreamManager {
 
 struct ChatStreamRequest: Codable {
     let userText: String
-    let attachments: [Attachment]? 
+    let attachments: [Attachment]?
+    let userTimezone: String
+    let userLocalTime: String 
 }

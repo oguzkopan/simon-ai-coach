@@ -497,6 +497,8 @@ final class EventsViewModel: ObservableObject {
                 } else {
                     errorMessage = "Failed to \(context). Please try again."
                 }
+            case .serverError(let message):
+                errorMessage = message
             case .decodingError:
                 errorMessage = "Unable to process server response."
             case .proRequired:

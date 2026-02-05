@@ -4,13 +4,25 @@ import "time"
 
 // CoachSpec defines the structured specification for a coach's behavior, style, and capabilities
 type CoachSpec struct {
-	Version   string         `firestore:"version" json:"version"`
-	Identity  Identity       `firestore:"identity" json:"identity"`
-	Style     Style          `firestore:"style" json:"style"`
-	Methods   Methods        `firestore:"methods" json:"methods"`
-	Policies  Policies       `firestore:"policies" json:"policies"`
+	Version      string       `firestore:"version" json:"version"`
+	Identity     Identity     `firestore:"identity" json:"identity"`
+	Style        Style        `firestore:"style" json:"style"`
+	Methods      Methods      `firestore:"methods" json:"methods"`
+	Policies     Policies     `firestore:"policies" json:"policies"`
 	ToolsAllowed ToolsAllowed `firestore:"tools_allowed" json:"tools_allowed"`
-	Outputs   Outputs        `firestore:"outputs" json:"outputs"`
+	Outputs      Outputs      `firestore:"outputs" json:"outputs"`
+	Voice        *VoiceConfig `firestore:"voice,omitempty" json:"voice,omitempty"`
+}
+
+// VoiceConfig defines voice settings for audio coaching
+type VoiceConfig struct {
+	Enabled     bool    `firestore:"enabled" json:"enabled"`
+	VoiceID     string  `firestore:"voice_id,omitempty" json:"voice_id,omitempty"`
+	VoiceName   string  `firestore:"voice_name,omitempty" json:"voice_name,omitempty"`
+	Stability   float64 `firestore:"stability" json:"stability"`
+	Similarity  float64 `firestore:"similarity" json:"similarity"`
+	Style       float64 `firestore:"style,omitempty" json:"style,omitempty"`
+	PresetName  string  `firestore:"preset_name,omitempty" json:"preset_name,omitempty"`
 }
 
 // Identity defines the coach's identity and positioning
@@ -21,7 +33,6 @@ type Identity struct {
 	Audience          []string `firestore:"audience" json:"audience"`
 	ProblemStatements []string `firestore:"problemStatements" json:"problemStatements"`
 	Outcomes          []string `firestore:"outcomes" json:"outcomes"`
-	Languages         []string `firestore:"languages" json:"languages"`
 	Persona           Persona  `firestore:"persona" json:"persona"`
 	SamplePrompts     []string `firestore:"samplePrompts,omitempty" json:"samplePrompts,omitempty"`
 }

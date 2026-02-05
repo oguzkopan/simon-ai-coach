@@ -37,7 +37,7 @@ enum InputMode {
 }
 
 @MainActor
-final class MomentViewModel: ObservableObject {
+final class MomentViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var freeformInput: String = ""
     @Published var selectedTemplate: MomentTemplate?
     @Published var isLoading: Bool = false
@@ -56,9 +56,18 @@ final class MomentViewModel: ObservableObject {
     @Published var showDocumentPicker: Bool = false
     @Published var attachedFiles: [AttachedFile] = []
     @Published var selectedPhotoItem: PhotosPickerItem?
-    @Published var inputMode: InputMode = .text // Toggle between text and voice
+    @Published var inputMode: InputMode = .voice // Toggle between text and voice (voice is default)
     @Published var recordingDuration: TimeInterval = 0
     @Published var audioLevels: [CGFloat] = Array(repeating: 0.3, count: 40) // For waveform visualization
+    
+    // Audio playback properties
+    @Published var hasRecordedAudio: Bool = false
+    @Published var isPlayingAudio: Bool = false
+    @Published var audioPlaybackPosition: TimeInterval = 0
+    @Published var savedAudioDuration: TimeInterval = 0
+    private var audioPlayer: AVAudioPlayer?
+    private var playbackTimer: Timer?
+    private var recordedAudioURL: URL?
     
     // Event records for display
     @Published var upcomingEvents: [CalendarEventRecord] = []
@@ -428,21 +437,31 @@ final class MomentViewModel: ObservableObject {
     }
     
     private func startRecordingTimers() {
-        // Duration timer
-        recordingTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            Task { @MainActor in
-                self.recordingDuration += 0.1
-            }
-        }
+        // Duration timer (selector-based to avoid @Sendable capture)
+        recordingTimer?.invalidate()
+        recordingTimer = Timer.scheduledTimer(timeInterval: 0.1,
+                                              target: self,
+                                              selector: #selector(recordingTimerFired),
+                                              userInfo: nil,
+                                              repeats: true)
+        RunLoop.main.add(recordingTimer!, forMode: .common)
         
-        // Audio level timer for waveform
-        levelTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            Task { @MainActor in
-                self.updateAudioLevels()
-            }
-        }
+        // Audio level timer for waveform (selector-based)
+        levelTimer?.invalidate()
+        levelTimer = Timer.scheduledTimer(timeInterval: 0.05,
+                                          target: self,
+                                          selector: #selector(levelTimerFired),
+                                          userInfo: nil,
+                                          repeats: true)
+        RunLoop.main.add(levelTimer!, forMode: .common)
+    }
+    
+    @objc private func recordingTimerFired() {
+        recordingDuration += 0.1
+    }
+    
+    @objc private func levelTimerFired() {
+        updateAudioLevels()
     }
     
     private func updateAudioLevels() {
@@ -469,13 +488,114 @@ final class MomentViewModel: ObservableObject {
         isRecording = false
         
         guard let recordingURL = audioRecorder?.url else {
+            print("❌ No recording URL available")
             return
         }
         
-        // Transcribe audio
-        Task {
-            await transcribeAudio(url: recordingURL)
+        print("✅ Recording stopped - URL: \(recordingURL)")
+        print("📊 Recording duration: \(recordingDuration)")
+        
+        // Save the recording for playback
+        recordedAudioURL = recordingURL
+        savedAudioDuration = recordingDuration
+        hasRecordedAudio = true
+        
+        // Prepare audio player
+        do {
+            // Configure audio session for playback
+            let audioSession = AVAudioSession.sharedInstance()
+            try audioSession.setCategory(.playback, mode: .default)
+            try audioSession.setActive(true)
+            
+            audioPlayer = try AVAudioPlayer(contentsOf: recordingURL)
+            audioPlayer?.delegate = self // Set delegate to detect completion
+            audioPlayer?.prepareToPlay()
+            
+            print("✅ Audio player prepared - duration: \(audioPlayer?.duration ?? 0)")
+        } catch {
+            print("❌ Failed to prepare audio player: \(error)")
+            errorMessage = "Failed to prepare audio for playback"
         }
+    }
+    
+    func playRecordedAudio() {
+        guard let player = audioPlayer else {
+            print("❌ No audio player available")
+            return
+        }
+        
+        // Configure audio session for playback
+        do {
+            let audioSession = AVAudioSession.sharedInstance()
+            try audioSession.setCategory(.playback, mode: .default)
+            try audioSession.setActive(true)
+        } catch {
+            print("❌ Failed to configure audio session for playback: \(error)")
+        }
+        
+        print("▶️ Starting playback - duration: \(player.duration)")
+        player.play()
+        isPlayingAudio = true
+        
+        // Start playback timer (selector-based to avoid @Sendable capture)
+        playbackTimer?.invalidate()
+        playbackTimer = Timer.scheduledTimer(timeInterval: 0.1,
+                                             target: self,
+                                             selector: #selector(playbackTimerFired),
+                                             userInfo: nil,
+                                             repeats: true)
+        if let playbackTimer {
+            RunLoop.main.add(playbackTimer, forMode: .common)
+        }
+    }
+    
+    @objc private func playbackTimerFired() {
+        guard let player = audioPlayer else { return }
+        audioPlaybackPosition = player.currentTime
+        
+        // Stop when finished
+        if !player.isPlaying && audioPlaybackPosition >= player.duration - 0.1 {
+            print("✅ Playback finished")
+            stopPlayback()
+        }
+    }
+    
+    func pauseRecordedAudio() {
+        audioPlayer?.pause()
+        isPlayingAudio = false
+        playbackTimer?.invalidate()
+        playbackTimer = nil
+    }
+    
+    func stopPlayback() {
+        audioPlayer?.stop()
+        audioPlayer?.currentTime = 0
+        audioPlaybackPosition = 0
+        isPlayingAudio = false
+        playbackTimer?.invalidate()
+        playbackTimer = nil
+    }
+    
+    func toggleAudioPlayback() {
+        if isPlayingAudio {
+            pauseRecordedAudio()
+        } else {
+            playRecordedAudio()
+        }
+    }
+    
+    func deleteRecordedAudio() {
+        stopPlayback()
+        
+        if let url = recordedAudioURL {
+            try? FileManager.default.removeItem(at: url)
+        }
+        
+        recordedAudioURL = nil
+        audioPlayer = nil
+        hasRecordedAudio = false
+        savedAudioDuration = 0
+        audioPlaybackPosition = 0
     }
     
     func cancelVoiceRecording() {
@@ -493,6 +613,22 @@ final class MomentViewModel: ObservableObject {
         isRecording = false
         recordingDuration = 0
         audioLevels = Array(repeating: 0.3, count: 40)
+    }
+    
+    // MARK: - AVAudioPlayerDelegate
+    
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        Task { @MainActor in
+            print("🎵 Audio playback finished successfully: \(flag)")
+            self.stopPlayback()
+        }
+    }
+    
+    nonisolated func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+        Task { @MainActor in
+            print("❌ Audio player decode error: \(error?.localizedDescription ?? "unknown")")
+            self.stopPlayback()
+        }
     }
     
     func toggleVoiceInput() {

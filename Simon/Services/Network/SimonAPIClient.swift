@@ -16,7 +16,8 @@ struct UserContextData: Codable {
 }
 
 struct AvatarGenerationResponse: Codable {
-    let imageData: String // Base64 encoded
+    let imageUrl: String?  // Public URL to the uploaded image
+    let imageData: String  // Base64 encoded (for backward compatibility)
     let mimeType: String
 }
 
@@ -24,10 +25,13 @@ protocol SimonAPI {
     func listCoaches(tag: String?, featured: Bool?) async throws -> [Coach]
     func getCoach(id: String) async throws -> Coach
     func createCoach(draft: CoachDraft) async throws -> Coach
-    func createCoach(title: String, promise: String, tags: [String], coachSpec: CoachSpec?, avatarData: Data?) async throws -> Coach
+    func createCoach(title: String, promise: String, tags: [String], coachSpec: CoachSpec?, avatarData: Data?, avatarURL: String?) async throws -> Coach
     func generateCoachAvatar(prompt: String, specialty: String, style: String) async throws -> AvatarGenerationResponse
     func forkCoach(coachId: String) async throws -> Coach
     func publishCoach(coachId: String) async throws -> Coach
+    func saveCoach(coachId: String) async throws
+    func unsaveCoach(coachId: String) async throws
+    func getSavedCoaches() async throws -> [Coach]
     func createSession(coachID: String?) async throws -> Session
     func getSession(id: String) async throws -> SessionDetail
     func streamChat(sessionID: String, userText: String, attachments: [Attachment]?) -> AsyncThrowingStream<SSEEvent, Error>
@@ -55,6 +59,11 @@ protocol SimonAPI {
     func getScheduledNotifications(coachID: String?, status: String?, limit: Int?, offset: Int?) async throws -> [ScheduledNotificationRecord]
     func completeReminder(id: String) async throws -> ReminderRecord
     func cancelNotification(id: String) async throws -> ScheduledNotificationRecord
+    
+    // Voice endpoints
+    func getVoices() async throws -> [ElevenLabsVoice]
+    func getVoice(id: String) async throws -> ElevenLabsVoice
+    func getVoicePresets() async throws -> [VoicePreset]
 }
 
 struct SessionDetail: Codable {
@@ -188,7 +197,7 @@ final class SimonAPIClient: SimonAPI {
         return try decoder.decode(Coach.self, from: data)
     }
     
-    func createCoach(title: String, promise: String, tags: [String], coachSpec: CoachSpec?, avatarData: Data?) async throws -> Coach {
+    func createCoach(title: String, promise: String, tags: [String], coachSpec: CoachSpec?, avatarData: Data?, avatarURL: String?) async throws -> Coach {
         var request = URLRequest(url: baseURL.appendingPathComponent("/v1/coaches"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -208,8 +217,10 @@ final class SimonAPIClient: SimonAPI {
             }
         }
         
-        // TODO: Upload avatar to storage and include URL in body
-        // For now, we'll store the avatar separately or include it in the coach metadata
+        // Include avatar URL if provided
+        if let avatarURL = avatarURL, !avatarURL.isEmpty {
+            body["avatar_url"] = avatarURL
+        }
         
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         
@@ -220,6 +231,11 @@ final class SimonAPIClient: SimonAPI {
         }
         
         guard (200...299).contains(httpResponse.statusCode) else {
+            // Try to extract error message from response body
+            if let errorDict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let errorMessage = errorDict["error"] as? String {
+                throw APIError.serverError(errorMessage)
+            }
             throw APIError.httpError(httpResponse.statusCode)
         }
         
@@ -232,6 +248,7 @@ final class SimonAPIClient: SimonAPI {
         var request = URLRequest(url: baseURL.appendingPathComponent("/v1/coaches/generate-avatar"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 60 // Increase timeout to 60 seconds for image generation
         try await addAuthHeader(to: &request)
         
         let body: [String: Any] = [
@@ -302,6 +319,60 @@ final class SimonAPIClient: SimonAPI {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(Coach.self, from: data)
+    }
+    
+    func saveCoach(coachId: String) async throws {
+        var request = URLRequest(url: baseURL.appendingPathComponent("/v1/coaches/\(coachId)/save"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try await addAuthHeader(to: &request)
+        
+        let (_, response) = try await session.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw APIError.httpError(httpResponse.statusCode)
+        }
+    }
+    
+    func unsaveCoach(coachId: String) async throws {
+        var request = URLRequest(url: baseURL.appendingPathComponent("/v1/coaches/\(coachId)/save"))
+        request.httpMethod = "DELETE"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try await addAuthHeader(to: &request)
+        
+        let (_, response) = try await session.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw APIError.httpError(httpResponse.statusCode)
+        }
+    }
+    
+    func getSavedCoaches() async throws -> [Coach] {
+        var request = URLRequest(url: baseURL.appendingPathComponent("/v1/coaches/saved/list"))
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try await addAuthHeader(to: &request)
+        
+        let (data, response) = try await session.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw APIError.httpError(httpResponse.statusCode)
+        }
+        
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode([Coach].self, from: data)
     }
     
     // MARK: - Sessions
@@ -383,7 +454,19 @@ final class SimonAPIClient: SimonAPI {
     
     func streamChat(sessionID: String, userText: String, attachments: [Attachment]? = nil) -> AsyncThrowingStream<SSEEvent, Error> {
         let url = baseURL.appendingPathComponent("/v1/sessions/\(sessionID)/stream")
-        let request = ChatStreamRequest(userText: userText, attachments: attachments)
+        
+        // Get user's timezone and local time
+        let timezone = TimeZone.current.identifier
+        let formatter = ISO8601DateFormatter()
+        formatter.timeZone = TimeZone.current
+        let localTime = formatter.string(from: Date())
+        
+        let request = ChatStreamRequest(
+            userText: userText,
+            attachments: attachments,
+            userTimezone: timezone,
+            userLocalTime: localTime
+        )
         let sseManager = SSEStreamManager()
         return sseManager.connect(url: url, request: request)
     }
@@ -662,9 +745,11 @@ final class SimonAPIClient: SimonAPI {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         try await addAuthHeader(to: &request)
         
-        request.httpBody = try JSONSerialization.data(withJSONObject: updates)
+        // Wrap updates in an "updates" field as expected by the backend
+        let body: [String: Any] = ["updates": updates]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
         
-        let (data, response) = try await session.data(for: request)
+        let (_, response) = try await session.data(for: request)
         
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.invalidResponse
@@ -674,10 +759,14 @@ final class SimonAPIClient: SimonAPI {
             throw APIError.httpError(httpResponse.statusCode)
         }
         
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(Plan.self, from: data)
+        // Backend returns {"status": "updated"}, so we need to fetch the updated plan
+        // For now, we'll fetch all plans and find the one we updated
+        let plans = try await listPlans(status: nil, limit: 100)
+        guard let updatedPlan = plans.first(where: { $0.id == planId }) else {
+            throw APIError.invalidResponse
+        }
+        
+        return updatedPlan
     }
     
     // MARK: - Tool Execution
@@ -903,11 +992,89 @@ final class SimonAPIClient: SimonAPI {
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(ScheduledNotificationRecord.self, from: data)
     }
+    
+    // MARK: - Voice
+    
+    func getVoices() async throws -> [ElevenLabsVoice] {
+        var request = URLRequest(url: baseURL.appendingPathComponent("/v1/voices"))
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try await addAuthHeader(to: &request)
+        
+        let (data, response) = try await session.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw APIError.httpError(httpResponse.statusCode)
+        }
+        
+        let decoder = JSONDecoder()
+        do {
+            let voicesResponse = try decoder.decode(VoicesResponse.self, from: data)
+            return voicesResponse.voices
+        } catch {
+            print("❌ Failed to decode voices response: \(error)")
+            if let jsonString = String(data: data, encoding: .utf8) {
+                print("📦 Response data: \(jsonString)")
+            }
+            throw APIError.decodingError
+        }
+    }
+    
+    func getVoice(id: String) async throws -> ElevenLabsVoice {
+        var request = URLRequest(url: baseURL.appendingPathComponent("/v1/voices/\(id)"))
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try await addAuthHeader(to: &request)
+        
+        let (data, response) = try await session.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw APIError.httpError(httpResponse.statusCode)
+        }
+        
+        let decoder = JSONDecoder()
+        return try decoder.decode(ElevenLabsVoice.self, from: data)
+    }
+    
+    func getVoicePresets() async throws -> [VoicePreset] {
+        var request = URLRequest(url: baseURL.appendingPathComponent("/v1/voices/presets/list"))
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        try await addAuthHeader(to: &request)
+        
+        let (data, response) = try await session.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw APIError.httpError(httpResponse.statusCode)
+        }
+        
+        let decoder = JSONDecoder()
+        do {
+            let presetsResponse = try decoder.decode(VoicePresetsResponse.self, from: data)
+            return presetsResponse.presets
+        } catch {
+            print("❌ Failed to decode presets response: \(error)")
+            if let jsonString = String(data: data, encoding: .utf8) {
+                print("📦 Response data: \(jsonString)")
+            }
+            throw APIError.decodingError
+        }
+    }
 }
 
 enum APIError: LocalizedError {
     case invalidResponse
     case httpError(Int)
+    case serverError(String)
     case decodingError
     case proRequired
     case rateLimitExceeded
@@ -918,8 +1085,10 @@ enum APIError: LocalizedError {
             return "Invalid response from server"
         case .httpError(let code):
             return "HTTP error: \(code)"
+        case .serverError(let message):
+            return message
         case .decodingError:
-            return "Failed to decode response"
+            return "The data couldn't be read because it is missing."
         case .proRequired:
             return "Pro subscription required"
         case .rateLimitExceeded:

@@ -22,6 +22,8 @@ type ContextPacket struct {
 	RetrievalHits       []MemoryHit
 	ConversationHistory []models.Message // Past messages in this session
 	UserContextSummary  string           // Formatted summary of user context (values, goals, etc.)
+	UserTimezone        string           // User's timezone (e.g., "America/New_York")
+	UserLocalTime       string           // User's current local time in ISO 8601
 }
 
 // MemoryHit represents a memory search result
@@ -47,8 +49,12 @@ func NewContextBuilder(fs *fsClient.Client, gm *gemini.Client) *ContextBuilder {
 }
 
 // Build constructs a complete context packet
-func (cb *ContextBuilder) Build(ctx context.Context, uid string, coachID string, sessionID string, route *router.Route) (*ContextPacket, error) {
+func (cb *ContextBuilder) Build(ctx context.Context, uid string, coachID string, sessionID string, route *router.Route, userTimezone string, userLocalTime string) (*ContextPacket, error) {
 	packet := &ContextPacket{}
+
+	// Store timezone information
+	packet.UserTimezone = userTimezone
+	packet.UserLocalTime = userLocalTime
 
 	// Fetch user
 	user, err := cb.getUserDoc(ctx, uid)

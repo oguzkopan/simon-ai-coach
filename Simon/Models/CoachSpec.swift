@@ -17,6 +17,7 @@ struct CoachSpec: Codable, Equatable {
     let policies: Policies
     let toolsAllowed: ToolsAllowed
     let outputs: Outputs
+    let voice: VoiceConfig?
     
     enum CodingKeys: String, CodingKey {
         case version
@@ -26,6 +27,28 @@ struct CoachSpec: Codable, Equatable {
         case policies
         case toolsAllowed = "tools_allowed"
         case outputs
+        case voice
+    }
+}
+
+/// VoiceConfig defines voice settings for audio coaching
+struct VoiceConfig: Codable, Equatable {
+    let enabled: Bool
+    let voiceID: String?
+    let voiceName: String?
+    let stability: Double
+    let similarity: Double
+    let style: Double?
+    let presetName: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case enabled
+        case voiceID = "voice_id"
+        case voiceName = "voice_name"
+        case stability
+        case similarity
+        case style
+        case presetName = "preset_name"
     }
 }
 
@@ -36,7 +59,6 @@ struct Identity: Codable, Equatable {
     let audience: [String]
     let problemStatements: [String]
     let outcomes: [String]
-    let languages: [String]
     let persona: Persona
     let samplePrompts: [String]?
 }

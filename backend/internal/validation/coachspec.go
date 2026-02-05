@@ -57,15 +57,15 @@ func validateIdentity(identity *models.Identity) error {
 	if identity.Name == "" {
 		return fmt.Errorf("name is required")
 	}
-	if len(identity.Name) > 100 {
-		return fmt.Errorf("name must be <= 100 characters")
+	if len(identity.Name) > 200 {
+		return fmt.Errorf("name must be <= 200 characters")
 	}
 
 	if identity.Tagline == "" {
 		return fmt.Errorf("tagline is required")
 	}
-	if len(identity.Tagline) > 200 {
-		return fmt.Errorf("tagline must be <= 200 characters")
+	if len(identity.Tagline) > 500 {
+		return fmt.Errorf("tagline must be <= 500 characters")
 	}
 
 	if identity.Niche == "" {
@@ -74,10 +74,6 @@ func validateIdentity(identity *models.Identity) error {
 
 	if len(identity.Audience) == 0 {
 		return fmt.Errorf("audience must have at least one entry")
-	}
-
-	if len(identity.Languages) == 0 {
-		return fmt.Errorf("languages must have at least one entry")
 	}
 
 	// Validate Persona
@@ -304,13 +300,13 @@ func validateSchemaDefinition(name string, schema *models.SchemaDefinition) erro
 
 // ValidateCoachForCreate validates a coach before creation
 func ValidateCoachForCreate(coach *models.Coach) error {
-	// Basic field validation
-	if coach.Title == "" || len(coach.Title) > 60 {
-		return fmt.Errorf("title must be 1-60 characters")
+	// Basic field validation - relaxed limits
+	if coach.Title == "" || len(coach.Title) > 200 {
+		return fmt.Errorf("title must be 1-200 characters")
 	}
 
-	if len(coach.Promise) > 140 {
-		return fmt.Errorf("promise must be <= 140 characters")
+	if len(coach.Promise) > 500 {
+		return fmt.Errorf("promise must be <= 500 characters")
 	}
 
 	// Validate CoachSpec if present
@@ -330,13 +326,13 @@ func ValidateCoachForCreate(coach *models.Coach) error {
 
 // ValidateCoachForUpdate validates a coach before update
 func ValidateCoachForUpdate(coach *models.Coach) error {
-	// Basic field validation
-	if coach.Title != "" && len(coach.Title) > 60 {
-		return fmt.Errorf("title must be <= 60 characters")
+	// Basic field validation - relaxed limits
+	if coach.Title != "" && len(coach.Title) > 200 {
+		return fmt.Errorf("title must be <= 200 characters")
 	}
 
-	if len(coach.Promise) > 140 {
-		return fmt.Errorf("promise must be <= 140 characters")
+	if len(coach.Promise) > 500 {
+		return fmt.Errorf("promise must be <= 500 characters")
 	}
 
 	// Validate CoachSpec if present

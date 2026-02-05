@@ -11,6 +11,9 @@ struct CoachDetailView: View {
     @State private var pendingPrompt: String?
     @State private var includeContext = true
     @State private var isLoadingPreference = true
+    @State private var isSaved = false
+    @State private var isSaving = false
+    @State private var showFullSpec = false
     
     var onStartChat: ((String, String?) -> Void)?
     private let apiClient: SimonAPIClient
@@ -154,6 +157,30 @@ struct CoachDetailView: View {
                     .padding(.horizontal, 20)
                 }
                 
+                // View Full Specification Button
+                if coach.coachSpec != nil {
+                    Button(action: { showFullSpec = true }) {
+                        HStack {
+                            Image(systemName: "doc.text.magnifyingglass")
+                                .font(.system(size: 16))
+                            
+                            Text("View Full Specification")
+                                .font(theme.font(15, weight: .medium))
+                            
+                            Spacer()
+                            
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 14))
+                                .foregroundColor(.secondary)
+                        }
+                        .foregroundColor(.primary)
+                        .padding(16)
+                        .background(Color(.systemGray6))
+                        .cornerRadius(16)
+                    }
+                    .padding(.horizontal, 20)
+                }
+                
                 // View Events for this Coach - Removed NavigationLink to fix navigation error
                 // Events can be accessed from the Library tab or through deep links
                 
@@ -175,18 +202,24 @@ struct CoachDetailView: View {
                     )
                     .disabled(isStartingSession)
                     
-                    // Bookmark button
-                    Button(action: { /* TODO: Implement bookmark */ }) {
+                    // Save/Unsave button
+                    Button(action: toggleSave) {
                         HStack {
-                            Image(systemName: "bookmark")
-                                .font(.system(size: 16))
-                            Text("Save for Later")
-                                .font(theme.font(15, weight: .medium))
+                            if isSaving {
+                                ProgressView()
+                                    .tint(theme.accentPrimary)
+                            } else {
+                                Image(systemName: isSaved ? "bookmark.fill" : "bookmark")
+                                    .font(.system(size: 16))
+                                Text(isSaved ? "Saved" : "Save for Later")
+                                    .font(theme.font(15, weight: .medium))
+                            }
                         }
                         .foregroundColor(theme.accentPrimary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
                     }
+                    .disabled(isSaving || !authManager.isAuthenticated)
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 40)
@@ -196,11 +229,16 @@ struct CoachDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await loadContextPreference()
+            await checkIfSaved()
         }
         .sheet(isPresented: $showSignInPrompt) {
             SignInPromptView(showSignIn: .constant(false))
                 .presentationDetents([.medium])
                 .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showFullSpec) {
+            CoachSpecDetailSheet(coach: coach, apiClient: apiClient)
+                .environmentObject(theme)
         }
     }
     
@@ -235,6 +273,58 @@ struct CoachDetailView: View {
                 await MainActor.run {
                     includeContext = !enabled
                     errorMessage = "Failed to update preference"
+                }
+            }
+        }
+    }
+    
+    private func checkIfSaved() async {
+        guard authManager.isAuthenticated else {
+            isSaved = false
+            return
+        }
+        
+        do {
+            let savedCoaches = try await apiClient.getSavedCoaches()
+            await MainActor.run {
+                isSaved = savedCoaches.contains { $0.id == coach.id }
+            }
+        } catch {
+            // Silently fail - not critical
+            await MainActor.run {
+                isSaved = false
+            }
+        }
+    }
+    
+    private func toggleSave() {
+        guard authManager.isAuthenticated else {
+            showSignInPrompt = true
+            return
+        }
+        
+        Task {
+            isSaving = true
+            errorMessage = nil
+            
+            do {
+                if isSaved {
+                    try await apiClient.unsaveCoach(coachId: coach.id)
+                    await MainActor.run {
+                        isSaved = false
+                        isSaving = false
+                    }
+                } else {
+                    try await apiClient.saveCoach(coachId: coach.id)
+                    await MainActor.run {
+                        isSaved = true
+                        isSaving = false
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    isSaving = false
+                    errorMessage = "Failed to \(isSaved ? "unsave" : "save") coach"
                 }
             }
         }

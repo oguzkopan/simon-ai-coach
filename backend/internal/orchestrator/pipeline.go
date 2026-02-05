@@ -31,11 +31,13 @@ type Pipeline struct {
 
 // PipelineInput contains the input for pipeline execution
 type PipelineInput struct {
-	SessionID   string
-	CoachID     string
-	UserMessage string
-	Attachments []models.Attachment
-	UID         string
+	SessionID     string
+	CoachID       string
+	UserMessage   string
+	Attachments   []models.Attachment
+	UID           string
+	UserTimezone  string // User's timezone (e.g., "America/New_York")
+	UserLocalTime string // User's current local time in ISO 8601
 }
 
 // PipelineOutput contains the output stream and session data
@@ -68,7 +70,7 @@ func (p *Pipeline) Execute(ctx context.Context, input PipelineInput) (*PipelineO
 		route := p.getDefaultRoute(input.UserMessage)
 
 		// Step 2: Context Builder - Fetch relevant context (including conversation history)
-		contextPacket, err := p.contextBuilder.Build(ctx, input.UID, input.CoachID, input.SessionID, route)
+		contextPacket, err := p.contextBuilder.Build(ctx, input.UID, input.CoachID, input.SessionID, route, input.UserTimezone, input.UserLocalTime)
 		if err != nil {
 			stream <- SSEEvent{
 				Type: "error",

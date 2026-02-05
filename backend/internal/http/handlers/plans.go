@@ -157,6 +157,32 @@ func GetPlan(fs *firestore.Client) gin.HandlerFunc {
 				}
 			}
 		}
+		
+		// Clean next_actions completed_at and when timestamps
+		if nextActions, ok := data["next_actions"].([]interface{}); ok {
+			for _, a := range nextActions {
+				if action, ok := a.(map[string]interface{}); ok {
+					if completedAt, exists := action["completed_at"]; exists {
+						if _, isString := completedAt.(string); isString {
+							delete(action, "completed_at")
+						}
+					}
+					// Also clean when.start_iso and when.end_iso if they are strings
+					if whenData, ok := action["when"].(map[string]interface{}); ok {
+						if startISO, exists := whenData["start_iso"]; exists {
+							if _, isString := startISO.(string); isString {
+								delete(whenData, "start_iso")
+							}
+						}
+						if endISO, exists := whenData["end_iso"]; exists {
+							if _, isString := endISO.(string); isString {
+								delete(whenData, "end_iso")
+							}
+						}
+					}
+				}
+			}
+		}
 
 		var plan models.Plan
 		// Manually populate plan from cleaned data

@@ -71,11 +71,14 @@ func New(cfg config.Config, fs *firestore.Client, gm *gemini.Client) (*gin.Engin
 		v1.PUT("/context/preference", handlers.UpdateContextPreference(fs))
 
 		// Coach endpoints (to be implemented in Week 1 Day 5-7)
-		v1.POST("/coaches", handlers.CreateCoach(fs))
+		v1.POST("/coaches", handlers.CreateCoach(fs, gm))
 		v1.PUT("/coaches/:id", handlers.UpdateCoach(fs))
 		v1.POST("/coaches/:id/fork", handlers.ForkCoach(fs))
 		v1.POST("/coaches/:id/publish", handlers.PublishCoach(fs, cfg))
-		v1.POST("/coaches/generate-avatar", handlers.GenerateAvatar(""))
+		v1.POST("/coaches/generate-avatar", handlers.GenerateAvatar(gm, cfg))
+		v1.POST("/coaches/:id/save", handlers.SaveCoach(fs))
+		v1.DELETE("/coaches/:id/save", handlers.UnsaveCoach(fs))
+		v1.GET("/coaches/saved/list", handlers.GetSavedCoaches(fs))
 
 		// Session endpoints (to be implemented in Week 1 Day 5-7)
 		v1.GET("/sessions", handlers.ListSessions(fs))
@@ -117,6 +120,13 @@ func New(cfg config.Config, fs *firestore.Client, gm *gemini.Client) (*gin.Engin
 		v1.GET("/events/notifications", eventsHandler.ListScheduledNotifications)
 		v1.PUT("/events/reminders/:id/complete", eventsHandler.CompleteReminder)
 		v1.DELETE("/events/notifications/:id", eventsHandler.CancelNotification)
+		
+		// Voice endpoints
+		voiceHandler := handlers.NewVoiceHandler(cfg)
+		v1.GET("/voices", voiceHandler.ListVoices)
+		v1.GET("/voices/:id", voiceHandler.GetVoice)
+		v1.GET("/voices/presets/list", voiceHandler.GetVoicePresets)
+		v1.POST("/voices/text-to-speech", voiceHandler.TextToSpeech)
 	}
 
 	return r, nil

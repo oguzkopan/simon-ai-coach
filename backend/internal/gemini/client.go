@@ -3,6 +3,8 @@ package gemini
 import (
 	"context"
 	"fmt"
+	"log"
+	"time"
 
 	"google.golang.org/genai"
 )
@@ -65,7 +67,7 @@ func (c *Client) GenerateContentStreamWithHistory(ctx context.Context, systemPro
 			Temperature:     &temperature,
 			TopP:            &topP,
 			TopK:            &topK,
-			MaxOutputTokens: 2048,
+			MaxOutputTokens: 4096,
 			ThinkingConfig: &genai.ThinkingConfig{
 				ThinkingLevel: genai.ThinkingLevelMinimal,
 			},
@@ -183,7 +185,7 @@ func (c *Client) GenerateContentStreamWithTools(
 			Temperature:     &temperature,
 			TopP:            &topP,
 			TopK:            &topK,
-			MaxOutputTokens: 2048,
+			MaxOutputTokens: 4096,
 			ThinkingConfig: &genai.ThinkingConfig{
 				ThinkingLevel: genai.ThinkingLevelMinimal,
 			},
@@ -307,7 +309,7 @@ func (c *Client) GenerateContentStream(ctx context.Context, prompt string) (<-ch
 			Temperature:     &temperature,
 			TopP:            &topP,
 			TopK:            &topK,
-			MaxOutputTokens: 2048,
+			MaxOutputTokens: 4096,
 		}
 
 		// Stream responses using the modern API pattern
@@ -333,4 +335,56 @@ func (c *Client) GenerateContentStream(ctx context.Context, prompt string) (<-ch
 	}()
 
 	return tokens, errors
+}
+
+// GenerateImage generates an image using Vertex AI Gemini Flash Image
+func (c *Client) GenerateImage(ctx context.Context, prompt string) ([]byte, string, error) {
+	// Use Gemini 2.5 Flash Image model - has higher quota limits than Pro
+	modelID := "gemini-2.5-flash-image"
+	
+	log.Printf("GenerateImage: Starting with Vertex AI model=%s", modelID)
+	
+	// Create a context with a longer timeout for image generation (90 seconds)
+	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
+	
+	// Configuration for image generation
+	temperature := float32(1.0)
+	config := &genai.GenerateContentConfig{
+		Temperature: &temperature,
+		// Request both TEXT and IMAGE modalities
+		ResponseModalities: []string{"TEXT", "IMAGE"},
+		// Configure Image specific parameters
+		ImageConfig: &genai.ImageConfig{
+			AspectRatio: "1:1", // Standard square
+			ImageSize:   "1K",  // 1024x1024 resolution
+		},
+	}
+	
+	log.Printf("GenerateImage: Calling Vertex AI Gemini API with ImageConfig (AspectRatio=1:1, ImageSize=1K)...")
+	
+	// Generate content with the image prompt using Vertex AI client
+	result, err := c.Raw.Models.GenerateContent(ctx, modelID, genai.Text(prompt), config)
+	if err != nil {
+		log.Printf("GenerateImage: API call failed: %v", err)
+		return nil, "", fmt.Errorf("failed to generate image: %w", err)
+	}
+	
+	log.Printf("GenerateImage: API call succeeded, processing response...")
+	
+	// Extract the generated image from the response
+	for i, candidate := range result.Candidates {
+		log.Printf("GenerateImage: Processing candidate %d with %d parts", i, len(candidate.Content.Parts))
+		for j, part := range candidate.Content.Parts {
+			if part.InlineData != nil {
+				log.Printf("GenerateImage: Found inline data at candidate=%d, part=%d, size=%d bytes, mime=%s", 
+					i, j, len(part.InlineData.Data), part.InlineData.MIMEType)
+				// Return the image data and MIME type
+				return part.InlineData.Data, part.InlineData.MIMEType, nil
+			}
+		}
+	}
+	
+	log.Printf("GenerateImage: No image data found in response")
+	return nil, "", fmt.Errorf("no image data found in response")
 }

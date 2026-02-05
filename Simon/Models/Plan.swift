@@ -7,8 +7,8 @@ struct Plan: Codable, Identifiable {
     let id: String
     let uid: String
     let coachId: String?  // Made optional to handle missing values
-    let title: String
-    let objective: String
+    var title: String
+    var objective: String
     let horizon: PlanHorizon
     var milestones: [Milestone]
     var nextActions: [NextAction]

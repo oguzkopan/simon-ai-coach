@@ -51,7 +51,6 @@ func main() {
 						"Momentum restored",
 						"Reduced overwhelm",
 					},
-					Languages: []string{"en"},
 					Persona: models.Persona{
 						Archetype:  "coach",
 						Voice:      "calm_direct",
@@ -184,7 +183,6 @@ func main() {
 						"Clear priorities for next week",
 						"Continuous improvement",
 					},
-					Languages: []string{"en"},
 					Persona: models.Persona{
 						Archetype:  "mentor",
 						Voice:      "warm_supportive",
@@ -318,7 +316,6 @@ func main() {
 						"Confidence in choices",
 						"Faster decision velocity",
 					},
-					Languages: []string{"en"},
 					Persona: models.Persona{
 						Archetype:  "strategist",
 						Voice:      "socratic_clear",
@@ -451,7 +448,6 @@ func main() {
 						"Shipping rhythm",
 						"Sustainable creative practice",
 					},
-					Languages: []string{"en"},
 					Persona: models.Persona{
 						Archetype:  "mentor",
 						Voice:      "encouraging_pragmatic",
@@ -591,7 +587,6 @@ func main() {
 						"Consistent execution",
 						"Progress tracking",
 					},
-					Languages: []string{"en"},
 					Persona: models.Persona{
 						Archetype:  "coach",
 						Voice:      "practical_supportive",
@@ -725,7 +720,6 @@ func main() {
 						"Action-taking habit",
 						"Growth mindset",
 					},
-					Languages: []string{"en"},
 					Persona: models.Persona{
 						Archetype:  "mentor",
 						Voice:      "empowering_direct",
