@@ -64,6 +64,9 @@ protocol SimonAPI {
     func getVoices() async throws -> [ElevenLabsVoice]
     func getVoice(id: String) async throws -> ElevenLabsVoice
     func getVoicePresets() async throws -> [VoicePreset]
+    
+    // Voice chat streaming
+    func streamVoiceChat(sessionID: String, audioData: Data, text: String?, attachments: [Attachment]?) -> AsyncThrowingStream<SSEEvent, Error>
 }
 
 struct SessionDetail: Codable {
@@ -1069,7 +1072,49 @@ final class SimonAPIClient: SimonAPI {
             throw APIError.decodingError
         }
     }
+    
+    // MARK: - Voice Chat Streaming
+    
+    func streamVoiceChat(sessionID: String, audioData: Data, text: String? = nil, attachments: [Attachment]? = nil) -> AsyncThrowingStream<SSEEvent, Error> {
+        // Use the regular chat endpoint - it now handles audio!
+        let url = baseURL.appendingPathComponent("/v1/sessions/\(sessionID)/stream")
+        
+        // Get user's timezone and local time
+        let timezone = TimeZone.current.identifier
+        let formatter = ISO8601DateFormatter()
+        formatter.timeZone = TimeZone.current
+        let localTime = formatter.string(from: Date())
+        
+        // Encode audio data as base64
+        let audioBase64 = audioData.base64EncodedString()
+        
+        // Build request payload - same format as regular chat
+        var payload: [String: Any] = [
+            "user_text": text ?? "🎤 Voice message",
+            "audio_data": audioBase64,
+            "user_timezone": timezone,
+            "user_local_time": localTime
+        ]
+        
+        if let attachments = attachments {
+            let attachmentDicts = attachments.map { att -> [String: Any] in
+                var dict: [String: Any] = [
+                    "type": att.type,
+                    "download_url": att.downloadURL
+                ]
+                if let mimeType = att.mimeType {
+                    dict["mime_type"] = mimeType
+                }
+                return dict
+            }
+            payload["attachments"] = attachmentDicts
+        }
+        
+        let sseManager = SSEStreamManager()
+        return sseManager.connectWithPayload(url: url, payload: payload)
+    }
 }
+
 
 enum APIError: LocalizedError {
     case invalidResponse

@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 
 	"simon-backend/internal/firestore"
@@ -38,6 +39,7 @@ type PipelineInput struct {
 	UID           string
 	UserTimezone  string // User's timezone (e.g., "America/New_York")
 	UserLocalTime string // User's current local time in ISO 8601
+	AudioData     []byte // Optional audio data for voice messages
 }
 
 // PipelineOutput contains the output stream and session data
@@ -65,6 +67,11 @@ func (p *Pipeline) Execute(ctx context.Context, input PipelineInput) (*PipelineO
 	go func() {
 		defer close(stream)
 
+		// Log audio data received by pipeline
+		if len(input.AudioData) > 0 {
+			log.Printf("🎵 Pipeline received %d bytes of audio data", len(input.AudioData))
+		}
+
 		// Step 1: Router Agent - DISABLED to save API quota
 		// Use simple default route instead of calling Gemini for classification
 		route := p.getDefaultRoute(input.UserMessage)
@@ -83,7 +90,13 @@ func (p *Pipeline) Execute(ctx context.Context, input PipelineInput) (*PipelineO
 		}
 
 		// Step 3: Coach Agent - Generate streaming response
-		coachOutput, err := p.coachAgent.Generate(ctx, input.UserMessage, input.Attachments, contextPacket, stream)
+		// Pass audio data if available
+		if len(input.AudioData) > 0 {
+			log.Printf("🎵 Pipeline calling GenerateWithAudio with %d bytes", len(input.AudioData))
+		} else {
+			log.Printf("⚠️ Pipeline calling GenerateWithAudio with NO audio data")
+		}
+		coachOutput, err := p.coachAgent.GenerateWithAudio(ctx, input.UserMessage, input.Attachments, input.AudioData, contextPacket, stream)
 		if err != nil {
 			stream <- SSEEvent{
 				Type: "error",

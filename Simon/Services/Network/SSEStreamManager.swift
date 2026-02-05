@@ -521,6 +521,111 @@ class SSEStreamManager {
             }
         }
     }
+    
+    /// Connect to SSE endpoint with a generic payload (for voice chat, etc.)
+    func connectWithPayload(url: URL, payload: [String: Any], retryCount: Int = 0) -> AsyncThrowingStream<SSEEvent, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    print("📡 SSE: Connecting to \(url) with payload")
+                    
+                    var urlRequest = URLRequest(url: url)
+                    urlRequest.httpMethod = "POST"
+                    urlRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+                    urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    urlRequest.timeoutInterval = 300 // 5 minutes
+                    
+                    // Get Firebase ID token
+                    print("📡 SSE: Getting Firebase ID token...")
+                    let token = try await AuthenticationManager.shared.idToken()
+                    urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                    print("📡 SSE: Token obtained")
+                    
+                    // Encode request body
+                    urlRequest.httpBody = try JSONSerialization.data(withJSONObject: payload)
+                    print("📡 SSE: Request body encoded")
+                    
+                    // Start streaming
+                    print("📡 SSE: Starting URLSession.bytes...")
+                    let (bytes, response) = try await URLSession.shared.bytes(for: urlRequest)
+                    
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        print("❌ SSE: Invalid response type")
+                        throw SSEError.invalidResponse
+                    }
+                    
+                    print("📡 SSE: HTTP Status: \(httpResponse.statusCode)")
+                    
+                    // Handle HTTP errors
+                    switch httpResponse.statusCode {
+                    case 200...299:
+                        print("✅ SSE: Connection successful")
+                        break
+                    case 401:
+                        print("❌ SSE: Unauthorized")
+                        throw SSEError.unauthorized
+                    case 429:
+                        print("❌ SSE: Rate limit exceeded")
+                        throw SSEError.rateLimitExceeded
+                    default:
+                        print("❌ SSE: Invalid response status: \(httpResponse.statusCode)")
+                        throw SSEError.invalidResponse
+                    }
+                    
+                    var currentEvent: String?
+                    var currentData: String?
+                    var currentID: String?
+                    print("📡 SSE: Starting to read stream...")
+                    
+                    var buffer = Data()
+                    
+                    for try await byte in bytes {
+                        buffer.append(byte)
+                        
+                        if byte == 10 { // Newline
+                            if let line = String(data: buffer, encoding: .utf8) {
+                                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                                
+                                if trimmed.isEmpty {
+                                    // Empty line = end of event
+                                    if let eventType = currentEvent, let data = currentData {
+                                        do {
+                                            let event = try self.parseEvent(type: eventType, data: data, id: currentID)
+                                            continuation.yield(event)
+                                        } catch {
+                                            print("⚠️ Failed to parse event: \(error)")
+                                        }
+                                    }
+                                    currentEvent = nil
+                                    currentData = nil
+                                    currentID = nil
+                                } else if trimmed.hasPrefix("event:") {
+                                    currentEvent = String(trimmed.dropFirst(6)).trimmingCharacters(in: .whitespaces)
+                                } else if trimmed.hasPrefix("data:") {
+                                    let dataLine = String(trimmed.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+                                    if currentData == nil {
+                                        currentData = dataLine
+                                    } else {
+                                        currentData! += "\n" + dataLine
+                                    }
+                                } else if trimmed.hasPrefix("id:") {
+                                    currentID = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+                                }
+                            }
+                            buffer.removeAll()
+                        }
+                    }
+                    
+                    print("📡 SSE: Stream ended normally")
+                    continuation.finish()
+                    
+                } catch {
+                    print("❌ SSE: Error: \(error)")
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
 }
 
 // MARK: - Chat Stream Request

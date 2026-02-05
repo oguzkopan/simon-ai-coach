@@ -2,8 +2,10 @@ package coach
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -60,6 +62,18 @@ func (ca *CoachAgent) Generate(
 	contextPacket *orchestratorContext.ContextPacket,
 	stream chan<- SSEEvent,
 ) (*CoachOutput, error) {
+	return ca.GenerateWithAudio(ctx, userMessage, attachments, nil, contextPacket, stream)
+}
+
+// GenerateWithAudio creates a streaming coaching response with optional audio input
+func (ca *CoachAgent) GenerateWithAudio(
+	ctx context.Context,
+	userMessage string,
+	attachments []models.Attachment,
+	audioData []byte,
+	contextPacket *orchestratorContext.ContextPacket,
+	stream chan<- SSEEvent,
+) (*CoachOutput, error) {
 	// Build system prompt from CoachSpec
 	systemPrompt := ca.buildSystemPrompt(
 		contextPacket.CoachSpec,
@@ -92,7 +106,42 @@ func (ca *CoachAgent) Generate(
 	}
 
 	// Build current message parts
-	currentParts := []*genai.Part{{Text: userMessage}}
+	currentParts := []*genai.Part{}
+	
+	// Add text message first (required by Gemini)
+	if userMessage != "" && userMessage != "🎤 Voice message" {
+		currentParts = append(currentParts, &genai.Part{Text: userMessage})
+	} else if len(audioData) > 0 {
+		// For voice-only messages, add a simple prompt
+		currentParts = append(currentParts, &genai.Part{Text: "Listen to this audio and respond naturally."})
+	} else {
+		currentParts = append(currentParts, &genai.Part{Text: userMessage})
+	}
+	
+	// Add audio after text if available (Gemini requires text first)
+	if len(audioData) > 0 {
+		log.Printf("🎤 Adding audio to Gemini request: %d bytes, MIME: audio/wav", len(audioData))
+		
+		// Add WAV header if not already present (check for RIFF signature)
+		var audioToSend []byte
+		if len(audioData) >= 4 && string(audioData[0:4]) == "RIFF" {
+			log.Printf("🎤 Audio already has WAV header")
+			audioToSend = audioData
+		} else {
+			log.Printf("🎤 Audio is raw PCM, adding WAV header")
+			audioToSend = addWAVHeaderToAudio(audioData, 16000, 1, 16)
+			log.Printf("🎤 WAV header added: %d bytes -> %d bytes", len(audioData), len(audioToSend))
+		}
+		
+		currentParts = append(currentParts, &genai.Part{
+			InlineData: &genai.Blob{
+				MIMEType: "audio/wav",
+				Data:     audioToSend,
+			},
+		})
+	}
+	
+	// Add other attachments
 	for _, att := range attachments {
 		if att.Type == "image" || att.Type == "file" {
 			fileURI := att.StoragePath
@@ -974,4 +1023,36 @@ func (ca *CoachAgent) executeServerTool(ctx context.Context, toolName string, pa
 	default:
 		return nil, fmt.Errorf("unknown server tool: %s", toolName)
 	}
+}
+
+// addWAVHeaderToAudio adds a WAV file header to raw PCM data
+func addWAVHeaderToAudio(pcmData []byte, sampleRate, channels, bitsPerSample int) []byte {
+	dataSize := len(pcmData)
+	byteRate := sampleRate * channels * bitsPerSample / 8
+	blockAlign := channels * bitsPerSample / 8
+	
+	header := make([]byte, 44)
+	
+	// RIFF header
+	copy(header[0:4], "RIFF")
+	binary.LittleEndian.PutUint32(header[4:8], uint32(36+dataSize))
+	copy(header[8:12], "WAVE")
+	
+	// fmt chunk
+	copy(header[12:16], "fmt ")
+	binary.LittleEndian.PutUint32(header[16:20], 16) // fmt chunk size
+	binary.LittleEndian.PutUint16(header[20:22], 1)  // audio format (1 = PCM)
+	binary.LittleEndian.PutUint16(header[22:24], uint16(channels))
+	binary.LittleEndian.PutUint32(header[24:28], uint32(sampleRate))
+	binary.LittleEndian.PutUint32(header[28:32], uint32(byteRate))
+	binary.LittleEndian.PutUint16(header[32:34], uint16(blockAlign))
+	binary.LittleEndian.PutUint16(header[34:36], uint16(bitsPerSample))
+	
+	// data chunk
+	copy(header[36:40], "data")
+	binary.LittleEndian.PutUint32(header[40:44], uint32(dataSize))
+	
+	// Combine header and data
+	wavData := append(header, pcmData...)
+	return wavData
 }

@@ -2,12 +2,16 @@ package handlers
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/binary"
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/firestore"
+	"cloud.google.com/go/storage"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"google.golang.org/genai"
@@ -104,6 +108,40 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 			return
 		}
 
+		// Handle audio data if present
+		var audioBytes []byte
+		var audioAttachment *models.Attachment
+		if req.AudioData != "" {
+			// Decode audio (use = instead of := to avoid shadowing)
+			var err error
+			audioBytes, err = base64.StdEncoding.DecodeString(req.AudioData)
+			if err != nil {
+				log.Printf("Error decoding audio: %v", err)
+				sse.Event(c.Writer, "error", map[string]interface{}{
+					"code":    "AUDIO_DECODE_ERROR",
+					"message": "invalid audio data",
+				})
+				flusher.Flush()
+				return
+			}
+			log.Printf("📢 Decoded audio data: %d bytes", len(audioBytes))
+
+			// Upload audio to Firebase Storage
+			audioURL, storagePath, uploadErr := uploadAudioToStorage(ctx, cfg.ProjectID, uid, sessionID, audioBytes)
+			if uploadErr != nil {
+				log.Printf("Error uploading audio: %v", uploadErr)
+				// Continue anyway - audio will still be processed
+			} else {
+				audioAttachment = &models.Attachment{
+					Type:        "audio",
+					StoragePath: storagePath,
+					DownloadURL: audioURL,
+					MimeType:    "audio/wav",
+				}
+				log.Printf("✅ Audio uploaded: %s", audioURL)
+			}
+		}
+
 		// Validate session ownership
 		sessionDoc, err := fs.DB.Collection("sessions").Doc(sessionID).Get(ctx)
 		if err != nil {
@@ -143,12 +181,28 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 		}
 
 		// Save user message first
+		userAttachments := req.Attachments
+		if audioAttachment != nil {
+			userAttachments = append(userAttachments, *audioAttachment)
+		}
+
+		userText := req.UserText
+		if userText == "" && len(audioBytes) > 0 {
+			userText = "🎤 Voice message"
+		}
+
 		userMsg := models.Message{
 			ID:          uuid.New().String(),
 			Role:        "user",
-			ContentText: req.UserText,
-			Attachments: req.Attachments,
+			ContentText: userText,
+			Attachments: userAttachments,
 			CreatedAt:   time.Now(),
+		}
+
+		// Log the message being saved
+		log.Printf("💾 Saving user message: id=%s, text=%s, attachments=%d", userMsg.ID, userText, len(userAttachments))
+		for i, att := range userAttachments {
+			log.Printf("💾 Message attachment %d: type=%s, url=%s", i, att.Type, att.DownloadURL)
 		}
 
 		_, err = fs.DB.Collection("sessions").Doc(sessionID).
@@ -190,15 +244,25 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 		// Create pipeline
 		pipeline := orchestrator.NewPipeline(fs, gm)
 
-		// Execute pipeline
+		// Log audio data being passed to pipeline
+		if len(audioBytes) > 0 {
+			log.Printf("🎤 Passing %d bytes of audio to pipeline", len(audioBytes))
+			log.Printf("🎤 User attachments count: %d", len(userAttachments))
+			for i, att := range userAttachments {
+				log.Printf("🎤 Attachment %d: type=%s, url=%s", i, att.Type, att.DownloadURL)
+			}
+		}
+
+		// Execute pipeline - pass userAttachments which includes the audio attachment
 		output, err := pipeline.Execute(ctx, orchestrator.PipelineInput{
 			SessionID:     sessionID,
 			CoachID:       coachID,
-			UserMessage:   req.UserText,
-			Attachments:   req.Attachments,
+			UserMessage:   userText,
+			Attachments:   userAttachments, // Use userAttachments which includes audio
 			UID:           uid,
 			UserTimezone:  req.UserTimezone,
 			UserLocalTime: req.UserLocalTime,
+			AudioData:     audioBytes, // Pass audio directly to pipeline
 		})
 		if err != nil {
 			log.Printf("Pipeline execution error: %v", err)
@@ -430,4 +494,93 @@ func extractToken(resp *genai.GenerateContentResponse) string {
 		return resp.Candidates[0].Content.Parts[0].Text
 	}
 	return ""
+}
+
+// uploadAudioToStorage uploads audio to Firebase Storage and returns the public URL
+func uploadAudioToStorage(ctx context.Context, projectID, uid, sessionID string, audioData []byte) (string, string, error) {
+	// Create storage client
+	storageClient, err := storage.NewClient(ctx)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to create storage client: %w", err)
+	}
+	defer storageClient.Close()
+
+	// Add WAV header to raw PCM data
+	// Gemini expects proper WAV format, not raw PCM
+	wavData := addWAVHeader(audioData, 16000, 1, 16) // 16kHz, mono, 16-bit
+	log.Printf("📢 Added WAV header: original size=%d bytes, with header=%d bytes", len(audioData), len(wavData))
+
+	// Generate filename
+	filename := fmt.Sprintf("voice_messages/%s/%s/%s.wav", uid, sessionID, uuid.New().String())
+	
+	// Get bucket
+	bucketName := fmt.Sprintf("%s.firebasestorage.app", projectID)
+	log.Printf("Uploading audio to bucket: %s, filename: %s", bucketName, filename)
+	
+	bucket := storageClient.Bucket(bucketName)
+	obj := bucket.Object(filename)
+	
+	// Upload with metadata
+	writer := obj.NewWriter(ctx)
+	writer.ContentType = "audio/wav"
+	writer.Metadata = map[string]string{
+		"uid":        uid,
+		"session_id": sessionID,
+		"type":       "voice_message",
+	}
+	
+	if _, err := writer.Write(wavData); err != nil {
+		writer.Close()
+		return "", "", fmt.Errorf("failed to write audio: %w", err)
+	}
+	
+	if err := writer.Close(); err != nil {
+		return "", "", fmt.Errorf("failed to close writer: %w", err)
+	}
+	
+	// Make object publicly readable
+	acl := obj.ACL()
+	if err := acl.Set(ctx, storage.AllUsers, storage.RoleReader); err != nil {
+		log.Printf("Warning: failed to set ACL: %v", err)
+	}
+	
+	// Return public URL
+	publicURL := fmt.Sprintf("https://firebasestorage.googleapis.com/v0/b/%s/o/%s?alt=media", 
+		bucketName, 
+		strings.ReplaceAll(filename, "/", "%2F"),
+	)
+	
+	return publicURL, filename, nil
+}
+
+// addWAVHeader adds a WAV file header to raw PCM data
+func addWAVHeader(pcmData []byte, sampleRate, channels, bitsPerSample int) []byte {
+	dataSize := len(pcmData)
+	byteRate := sampleRate * channels * bitsPerSample / 8
+	blockAlign := channels * bitsPerSample / 8
+	
+	header := make([]byte, 44)
+	
+	// RIFF header
+	copy(header[0:4], "RIFF")
+	binary.LittleEndian.PutUint32(header[4:8], uint32(36+dataSize))
+	copy(header[8:12], "WAVE")
+	
+	// fmt chunk
+	copy(header[12:16], "fmt ")
+	binary.LittleEndian.PutUint32(header[16:20], 16) // fmt chunk size
+	binary.LittleEndian.PutUint16(header[20:22], 1)  // audio format (1 = PCM)
+	binary.LittleEndian.PutUint16(header[22:24], uint16(channels))
+	binary.LittleEndian.PutUint32(header[24:28], uint32(sampleRate))
+	binary.LittleEndian.PutUint32(header[28:32], uint32(byteRate))
+	binary.LittleEndian.PutUint16(header[32:34], uint16(blockAlign))
+	binary.LittleEndian.PutUint16(header[34:36], uint16(bitsPerSample))
+	
+	// data chunk
+	copy(header[36:40], "data")
+	binary.LittleEndian.PutUint32(header[40:44], uint32(dataSize))
+	
+	// Combine header and data
+	wavData := append(header, pcmData...)
+	return wavData
 }

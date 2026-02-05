@@ -257,7 +257,21 @@ struct ChatView: View {
             VStack(spacing: 0) {
                 Divider()
                 
-                VStack(spacing: 0) {
+                // Voice Recording Widget (replaces composer when active)
+                if viewModel.isVoiceMode {
+                    VoiceRecordingWidget(
+                        recordingManager: viewModel.voiceRecordingManager,
+                        onSend: { audio in
+                            viewModel.sendVoiceMessage(audio)
+                        },
+                        onCancel: {
+                            viewModel.cancelVoiceRecording()
+                        }
+                    )
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                } else {
+                    // Regular Text Composer
+                    VStack(spacing: 0) {
                     // Attachment Strip & Upload Indicator
                     if !viewModel.localAttachments.isEmpty || viewModel.isUploading {
                         VStack(alignment: .leading, spacing: 8) {
@@ -329,6 +343,19 @@ struct ChatView: View {
                     
                     // Input Row
                     HStack(alignment: .bottom, spacing: 10) {
+                        // Voice Recording Button (left side)
+                        Button(action: {
+                            viewModel.startVoiceRecording()
+                        }) {
+                            Image(systemName: "mic.fill")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(width: 32, height: 32)
+                                .background(theme.accentPrimary)
+                                .clipShape(Circle())
+                        }
+                        .disabled(viewModel.isStreaming)
+                        
                         // Attachment Button
                         Button(action: {
                             // Logic to show action sheet or menu
@@ -378,6 +405,7 @@ struct ChatView: View {
                     .padding(.vertical, 12)
                 }
                 .background(Color(.systemBackground))
+                }
             }
         } // VStack
         .navigationTitle(viewModel.coachName)
@@ -441,6 +469,31 @@ struct MessageBubble: View {
     
     @EnvironmentObject private var theme: ThemeStore
     
+    // Check if message has audio attachment
+    private var audioAttachment: Attachment? {
+        let attachment = message.attachments?.first(where: { $0.type == "audio" })
+        if message.contentText.contains("🎤") || message.contentText == "Voice message" {
+            print("🔍 Voice message detected: \(message.id)")
+            print("🔍 Message text: '\(message.contentText)'")
+            print("🔍 Attachments count: \(message.attachments?.count ?? 0)")
+            if let attachments = message.attachments {
+                for (index, att) in attachments.enumerated() {
+                    print("🔍 Attachment \(index): type=\(att.type), url=\(att.downloadURL)")
+                }
+            }
+            print("🔍 Audio attachment found: \(attachment != nil)")
+            if let audio = attachment {
+                print("🔍 Audio URL: \(audio.downloadURL)")
+            }
+        }
+        return attachment
+    }
+    
+    // Check if this is a voice message (has audio or voice indicator)
+    private var isVoiceMessage: Bool {
+        audioAttachment != nil || message.contentText.contains("🎤")
+    }
+    
     var body: some View {
         HStack {
             if message.isUser {
@@ -448,12 +501,47 @@ struct MessageBubble: View {
             }
             
             VStack(alignment: message.isUser ? .trailing : .leading, spacing: 4) {
-                Text(message.contentText)
-                    .font(theme.font(15))
+                // Show voice message bubble if audio attachment exists
+                if let audio = audioAttachment {
+                    VoiceMessageBubble(
+                        audioURL: audio.downloadURL,
+                        duration: nil, // Could be added to attachment metadata
+                        isUser: message.isUser
+                    )
+                    .frame(maxWidth: 280)
+                    
+                    // Show transcribed text below if available and not just emoji
+                    if !message.contentText.isEmpty && message.contentText != "🎤 Voice message" && !message.contentText.contains("🎤") {
+                        Text(message.contentText)
+                            .font(theme.font(13))
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Color(.systemGray6).opacity(0.5))
+                            .cornerRadius(12)
+                            .frame(maxWidth: 280, alignment: message.isUser ? .trailing : .leading)
+                    }
+                } else if isVoiceMessage {
+                    // Voice message without audio attachment (still processing or failed)
+                    HStack(spacing: 8) {
+                        Image(systemName: "waveform")
+                            .font(.system(size: 16))
+                        Text("Voice message")
+                            .font(theme.font(14))
+                    }
                     .foregroundColor(message.isUser ? .white : .primary)
                     .padding(12)
                     .background(message.isUser ? theme.accentPrimary : Color(.systemGray6))
                     .cornerRadius(16)
+                } else {
+                    // Regular text message
+                    Text(message.contentText)
+                        .font(theme.font(15))
+                        .foregroundColor(message.isUser ? .white : .primary)
+                        .padding(12)
+                        .background(message.isUser ? theme.accentPrimary : Color(.systemGray6))
+                        .cornerRadius(16)
+                }
                 
                 HStack(spacing: 8) {
                     Text(message.createdAt, style: .time)

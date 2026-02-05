@@ -38,6 +38,10 @@ final class ChatViewModel: ObservableObject {
     @Published var shouldShowError = false // Control when to show error UI
     @Published var hasCompletedInitialLoad = false // Track if we've completed the first load
     
+    // Voice recording
+    @Published var isVoiceMode = false
+    @Published var voiceRecordingManager = VoiceRecordingManager()
+    
     // New SSE event handling
     @Published var nextActionsCard: NextActionsCardPayload?
     @Published var planCard: PlanCardPayload?
@@ -251,7 +255,7 @@ final class ChatViewModel: ObservableObject {
     }
     
     func send() {
-        guard !composerText.isEmpty else { return }
+        guard !composerText.isEmpty || !localAttachments.isEmpty else { return }
         
         let userText = composerText
         // Local references to process
@@ -260,6 +264,7 @@ final class ChatViewModel: ObservableObject {
         // Optimistically clear input
         composerText = ""
         localAttachments = []
+        isVoiceMode = false
         
         // Clear previous cards
         nextActionsCard = nil
@@ -606,6 +611,189 @@ final class ChatViewModel: ObservableObject {
         
         // Clear the current tool request (but keep in history)
         self.toolRequest = nil
+    }
+    
+    // MARK: - Voice Recording
+    
+    func sendVoiceMessage(_ audio: RecordedAudio) {
+        // Clear previous cards
+        nextActionsCard = nil
+        planCard = nil
+        weeklyReviewCard = nil
+        toolRequest = nil
+        policyNotice = nil
+        
+        // Reset voice mode and manager
+        isVoiceMode = false
+        voiceRecordingManager.reset()
+        
+        // Start streaming
+        isStreaming = true
+        errorMessage = nil
+        
+        streamingTask = Task {
+            // Add user message to UI (voice indicator) - will be replaced when we reload
+            await MainActor.run {
+                AnalyticsManager.shared.logMessageSent(
+                    coachID: sessionCoachID ?? "unknown",
+                    messageLength: 0 // Voice message
+                )
+                
+                let userMessage = Message(
+                    id: UUID().uuidString,
+                    role: "user",
+                    contentText: "🎤 Voice message",
+                    attachments: nil,
+                    createdAt: Date()
+                )
+                messages.append(userMessage)
+            }
+            
+            // Stream voice response
+            await streamVoiceResponse(audioData: audio.data)
+        }
+    }
+    
+    private func streamVoiceResponse(audioData: Data) async {
+        var assistantText = ""
+        let assistantID = UUID().uuidString
+        
+        // Add placeholder assistant message
+        await MainActor.run {
+            let placeholderMessage = Message(
+                id: assistantID,
+                role: "assistant",
+                contentText: "",
+                attachments: nil,
+                createdAt: Date()
+            )
+            messages.append(placeholderMessage)
+        }
+        
+        do {
+            print("🚀 Starting voice chat stream for session: \(sessionID)")
+            let stream = apiClient.streamVoiceChat(
+                sessionID: sessionID,
+                audioData: audioData,
+                text: nil,
+                attachments: nil
+            )
+            
+            // Reload messages after stream completes to get the saved messages with attachments
+            // Don't reload during streaming - wait until done
+            
+            for try await event in stream {
+                if Task.isCancelled {
+                    print("⚠️ Stream task cancelled")
+                    break
+                }
+                
+                print("📨 Received voice event: \(event)")
+                
+                switch event {
+                case .streamOpen(let payload):
+                    print("✅ Voice stream opened: \(payload.sessionId)")
+                    
+                case .messageDelta(let payload):
+                    print("📝 Voice message delta: \(payload.delta)")
+                    await MainActor.run {
+                        assistantText += payload.delta
+                        if let index = messages.firstIndex(where: { $0.id == assistantID }) {
+                            messages[index] = Message(
+                                id: assistantID,
+                                role: "assistant",
+                                contentText: assistantText,
+                                attachments: nil,
+                                createdAt: Date()
+                            )
+                        }
+                    }
+                    
+                case .messageFinal(let payload):
+                    print("✅ Voice message final: \(payload.text.prefix(50))...")
+                    let finalID = payload.messageId
+                    
+                    await MainActor.run {
+                        assistantText = payload.text
+                        
+                        if payload.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            if let index = messages.firstIndex(where: { $0.id == assistantID }) {
+                                messages.remove(at: index)
+                            }
+                        } else {
+                            if let index = messages.firstIndex(where: { $0.id == assistantID }) {
+                                messages[index] = Message(
+                                    id: finalID,
+                                    role: "assistant",
+                                    contentText: assistantText,
+                                    attachments: nil,
+                                    createdAt: Date()
+                                )
+                            }
+                        }
+                    }
+                    
+                case .error(let payload):
+                    print("❌ Voice error event: \(payload.message)")
+                    await MainActor.run {
+                        if payload.message.contains("quota") || payload.message.contains("429") || payload.message.contains("RESOURCE_EXHAUSTED") {
+                            errorMessage = "⏳ API rate limit reached. Please wait a moment and try again."
+                        } else {
+                            errorMessage = payload.message
+                        }
+                    }
+                    
+                case .streamDone(let payload):
+                    print("✅ Voice stream done: \(payload.status)")
+                    
+                default:
+                    // Handle other events (cards, tools, etc.)
+                    break
+                }
+            }
+            
+            print("🏁 Voice stream loop completed")
+            
+            await MainActor.run {
+                isStreaming = false
+                isVoiceMode = false
+            }
+            
+            // Wait a moment for the backend to finish saving the message with attachments
+            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+            
+            // Reload messages to get the saved messages with audio attachments
+            // This will replace the placeholder messages with the real ones from the server
+            hasLoadedMessages = false // Allow reload
+            await loadMessages()
+        } catch {
+            print("❌ Voice stream error: \(error)")
+            await MainActor.run {
+                errorMessage = error.localizedDescription
+                messages.removeAll { $0.id == assistantID }
+                isStreaming = false
+                isVoiceMode = false
+            }
+        }
+    }
+    
+    func startVoiceRecording() {
+        isVoiceMode = true
+        Task {
+            do {
+                try await voiceRecordingManager.startRecording()
+            } catch {
+                errorMessage = error.localizedDescription
+                isVoiceMode = false
+            }
+        }
+    }
+    
+    func cancelVoiceRecording() {
+        Task {
+            await voiceRecordingManager.cancelRecording()
+            isVoiceMode = false
+        }
     }
     
     deinit {
