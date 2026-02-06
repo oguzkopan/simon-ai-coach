@@ -472,20 +472,23 @@ struct MessageBubble: View {
     // Check if message has audio attachment
     private var audioAttachment: Attachment? {
         let attachment = message.attachments?.first(where: { $0.type == "audio" })
-        if message.contentText.contains("🎤") || message.contentText == "Voice message" {
-            print("🔍 Voice message detected: \(message.id)")
-            print("🔍 Message text: '\(message.contentText)'")
-            print("🔍 Attachments count: \(message.attachments?.count ?? 0)")
+        
+        // Debug logging for voice messages
+        if message.contentText.contains("🎤") || message.contentText == "Voice message" || attachment != nil {
+            print("🔍 Voice message check: \(message.id)")
+            print("🔍   Text: '\(message.contentText)'")
+            print("🔍   Attachments: \(message.attachments?.count ?? 0)")
             if let attachments = message.attachments {
                 for (index, att) in attachments.enumerated() {
-                    print("🔍 Attachment \(index): type=\(att.type), url=\(att.downloadURL)")
+                    print("🔍   Attachment[\(index)]: type=\(att.type), url=\(att.downloadURL)")
                 }
             }
-            print("🔍 Audio attachment found: \(attachment != nil)")
+            print("🔍   Audio found: \(attachment != nil)")
             if let audio = attachment {
-                print("🔍 Audio URL: \(audio.downloadURL)")
+                print("🔍   Audio URL: \(audio.downloadURL)")
             }
         }
+        
         return attachment
     }
     

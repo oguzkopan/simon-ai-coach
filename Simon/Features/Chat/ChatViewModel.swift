@@ -759,13 +759,19 @@ final class ChatViewModel: ObservableObject {
                 isVoiceMode = false
             }
             
-            // Wait a moment for the backend to finish saving the message with attachments
-            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+            // CRITICAL: Reload messages to get the saved messages with audio attachments
+            // The backend saves the user message with the audio attachment, but the frontend
+            // only has a placeholder message. We need to reload to get the real message.
+            print("🔄 Reloading messages to get audio attachments...")
             
-            // Reload messages to get the saved messages with audio attachments
-            // This will replace the placeholder messages with the real ones from the server
-            hasLoadedMessages = false // Allow reload
+            // Wait a moment for the backend to finish saving
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+            
+            // Force reload by resetting the flag
+            hasLoadedMessages = false
             await loadMessages()
+            
+            print("✅ Messages reloaded after voice message")
         } catch {
             print("❌ Voice stream error: \(error)")
             await MainActor.run {

@@ -27,6 +27,10 @@ struct VoiceMessageBubble: View {
                     if isLoading {
                         ProgressView()
                             .tint(isUser ? .white : theme.accentPrimary)
+                    } else if loadError != nil {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(isUser ? .white : .red)
                     } else {
                         Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                             .font(.system(size: 16))
@@ -34,27 +38,46 @@ struct VoiceMessageBubble: View {
                     }
                 }
             }
-            .disabled(isLoading || loadError != nil)
+            .disabled(isLoading)
             
             // Waveform and Progress
             VStack(alignment: .leading, spacing: 4) {
-                // Simple waveform visualization
-                HStack(spacing: 2) {
-                    ForEach(0..<20, id: \.self) { index in
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(isUser ? Color.white.opacity(0.6) : theme.accentPrimary.opacity(0.4))
-                            .frame(width: 3, height: CGFloat.random(in: 8...24))
-                            .opacity(playbackProgress > Double(index) / 20.0 ? 1.0 : 0.4)
-                    }
-                }
-                .frame(height: 24)
-                
-                // Duration / Progress
                 if let error = loadError {
-                    Text(error)
-                        .font(theme.font(10))
-                        .foregroundColor(isUser ? .white.opacity(0.7) : .secondary)
+                    // Error state with retry option
+                    HStack(spacing: 8) {
+                        Text(error)
+                            .font(theme.font(12))
+                            .foregroundColor(isUser ? .white.opacity(0.9) : .red)
+                        
+                        Button(action: {
+                            // Reset error and retry
+                            loadError = nil
+                            audioPlayer = nil
+                            startPlayback()
+                        }) {
+                            Text("Retry")
+                                .font(theme.font(11, weight: .semibold))
+                                .foregroundColor(isUser ? .white : theme.accentPrimary)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(isUser ? Color.white.opacity(0.2) : theme.accentPrimary.opacity(0.1))
+                                .cornerRadius(8)
+                        }
+                    }
                 } else {
+                    // Normal playback state
+                    // Simple waveform visualization
+                    HStack(spacing: 2) {
+                        ForEach(0..<20, id: \.self) { index in
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(isUser ? Color.white.opacity(0.6) : theme.accentPrimary.opacity(0.4))
+                                .frame(width: 3, height: CGFloat.random(in: 8...24))
+                                .opacity(playbackProgress > Double(index) / 20.0 ? 1.0 : 0.4)
+                        }
+                    }
+                    .frame(height: 24)
+                    
+                    // Duration / Progress
                     Text(formatTime(playbackProgress * (duration ?? 0)))
                         .font(theme.font(10))
                         .foregroundColor(isUser ? .white.opacity(0.7) : .secondary)
@@ -97,7 +120,7 @@ struct VoiceMessageBubble: View {
         
         guard let url = URL(string: audioURL) else {
             print("❌ VoiceMessageBubble: Invalid URL: \(audioURL)")
-            loadError = "Invalid URL"
+            loadError = "Invalid audio URL"
             isLoading = false
             return
         }
@@ -105,17 +128,33 @@ struct VoiceMessageBubble: View {
         Task {
             do {
                 print("🎵 VoiceMessageBubble: Downloading audio from: \(url)")
+                
+                // Create URL request with longer timeout
+                var request = URLRequest(url: url)
+                request.timeoutInterval = 30
+                request.cachePolicy = .reloadIgnoringLocalCacheData
+                
                 // Download audio data
-                let (data, response) = try await URLSession.shared.data(from: url)
+                let (data, response) = try await URLSession.shared.data(for: request)
                 
                 if let httpResponse = response as? HTTPURLResponse {
                     print("🎵 VoiceMessageBubble: HTTP Status: \(httpResponse.statusCode)")
                     if httpResponse.statusCode != 200 {
-                        throw NSError(domain: "VoiceMessageBubble", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "HTTP \(httpResponse.statusCode)"])
+                        let errorMsg = httpResponse.statusCode == 403 ? "Access denied" : 
+                                      httpResponse.statusCode == 404 ? "Audio not found" :
+                                      "Download failed (\(httpResponse.statusCode))"
+                        throw NSError(domain: "VoiceMessageBubble", code: httpResponse.statusCode, 
+                                    userInfo: [NSLocalizedDescriptionKey: errorMsg])
                     }
                 }
                 
                 print("🎵 VoiceMessageBubble: Downloaded \(data.count) bytes")
+                
+                // Validate we have audio data
+                guard data.count > 0 else {
+                    throw NSError(domain: "VoiceMessageBubble", code: -1, 
+                                userInfo: [NSLocalizedDescriptionKey: "Empty audio file"])
+                }
                 
                 // Create temporary file
                 let tempURL = FileManager.default.temporaryDirectory
@@ -129,7 +168,7 @@ struct VoiceMessageBubble: View {
                 await MainActor.run {
                     do {
                         // Configure audio session for playback
-                        try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+                        try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [])
                         try AVAudioSession.sharedInstance().setActive(true)
                         
                         let player = try AVAudioPlayer(contentsOf: tempURL)
@@ -138,20 +177,40 @@ struct VoiceMessageBubble: View {
                         
                         print("🎵 VoiceMessageBubble: Player created, duration: \(player.duration)s")
                         
+                        // Validate duration
+                        guard player.duration > 0 else {
+                            throw NSError(domain: "VoiceMessageBubble", code: -1,
+                                        userInfo: [NSLocalizedDescriptionKey: "Invalid audio format"])
+                        }
+                        
                         player.play()
                         isPlaying = true
                         isLoading = false
                         startProgressTimer()
                     } catch {
                         print("❌ VoiceMessageBubble: Playback failed: \(error)")
-                        loadError = "Playback failed"
+                        loadError = "Can't play audio"
                         isLoading = false
                     }
                 }
-            } catch {
+            } catch let error as NSError {
                 print("❌ VoiceMessageBubble: Download failed: \(error)")
+                print("❌ Error domain: \(error.domain), code: \(error.code)")
+                print("❌ Error description: \(error.localizedDescription)")
+                
                 await MainActor.run {
-                    loadError = "Download failed"
+                    // Provide user-friendly error messages
+                    if error.code == NSURLErrorTimedOut || error.code == NSURLErrorCannotConnectToHost {
+                        loadError = "Network timeout"
+                    } else if error.code == NSURLErrorNotConnectedToInternet {
+                        loadError = "No internet"
+                    } else if error.code == 403 {
+                        loadError = "Access denied"
+                    } else if error.code == 404 {
+                        loadError = "Audio not found"
+                    } else {
+                        loadError = "Download failed"
+                    }
                     isLoading = false
                 }
             }

@@ -543,6 +543,8 @@ func uploadAudioToStorage(ctx context.Context, projectID, uid, sessionID string,
 		"type":       "voice_message",
 	}
 	
+	log.Printf("📤 Uploading audio: bucket=%s, path=%s, size=%d bytes", bucketName, filename, len(wavData))
+	
 	if _, err := writer.Write(wavData); err != nil {
 		writer.Close()
 		return "", "", fmt.Errorf("failed to write audio: %w", err)
@@ -552,17 +554,48 @@ func uploadAudioToStorage(ctx context.Context, projectID, uid, sessionID string,
 		return "", "", fmt.Errorf("failed to close writer: %w", err)
 	}
 	
-	// Make object publicly readable
+	// Set metadata to make file publicly accessible
+	// This works better than ACL for Firebase Storage
+	attrs := storage.ObjectAttrsToUpdate{
+		Metadata: map[string]string{
+			"firebaseStorageDownloadTokens": uuid.New().String(), // Generate download token
+		},
+	}
+	
+	objAttrs, err := obj.Update(ctx, attrs)
+	if err != nil {
+		log.Printf("Warning: failed to set download token: %v", err)
+		// Continue anyway - try without token
+	}
+	
+	// Try to make object publicly readable via ACL (may not work depending on bucket settings)
 	acl := obj.ACL()
 	if err := acl.Set(ctx, storage.AllUsers, storage.RoleReader); err != nil {
 		log.Printf("Warning: failed to set ACL: %v", err)
+		// This is expected if uniform bucket-level access is enabled
 	}
 	
-	// Return public URL
-	publicURL := fmt.Sprintf("https://firebasestorage.googleapis.com/v0/b/%s/o/%s?alt=media", 
-		bucketName, 
-		strings.ReplaceAll(filename, "/", "%2F"),
-	)
+	// Return public URL with download token if available
+	var publicURL string
+	if objAttrs != nil && objAttrs.Metadata != nil {
+		if token, ok := objAttrs.Metadata["firebaseStorageDownloadTokens"]; ok {
+			publicURL = fmt.Sprintf("https://firebasestorage.googleapis.com/v0/b/%s/o/%s?alt=media&token=%s", 
+				bucketName, 
+				strings.ReplaceAll(filename, "/", "%2F"),
+				token,
+			)
+			log.Printf("✅ Generated public URL with token: %s", publicURL)
+		}
+	}
+	
+	// Fallback to URL without token
+	if publicURL == "" {
+		publicURL = fmt.Sprintf("https://firebasestorage.googleapis.com/v0/b/%s/o/%s?alt=media", 
+			bucketName, 
+			strings.ReplaceAll(filename, "/", "%2F"),
+		)
+		log.Printf("⚠️ Generated public URL without token (may require Firebase Storage rules): %s", publicURL)
+	}
 	
 	return publicURL, filename, nil
 }
