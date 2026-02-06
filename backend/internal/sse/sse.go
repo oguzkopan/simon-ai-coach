@@ -9,9 +9,11 @@ import (
 // Init initializes SSE headers and returns a flusher
 func Init(w http.ResponseWriter) (http.Flusher, bool) {
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no") // Disable nginx buffering
+	w.Header().Set("X-Content-Type-Options", "nosniff") // Prevent content sniffing
+	w.Header().Set("Transfer-Encoding", "chunked") // Enable chunked transfer
 
 	flusher, ok := w.(http.Flusher)
 	return flusher, ok

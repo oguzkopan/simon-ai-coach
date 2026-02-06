@@ -107,6 +107,11 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "streaming not supported"})
 			return
 		}
+		
+		// CRITICAL: Write headers immediately to establish the stream
+		// This prevents Gin from buffering the response
+		c.Writer.WriteHeaderNow()
+		flusher.Flush()
 
 		// Handle audio data if present
 		var audioBytes []byte
@@ -344,8 +349,17 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 					log.Printf("Error writing SSE event: %v", err)
 					return
 				}
+				
+				// CRITICAL: Smart flushing strategy
+				// - message.delta: ALWAYS flush immediately for real-time text streaming
+				// - message.final: ALWAYS flush immediately to complete the message
+				// - tool.request: Flush immediately so UI can show "Creating event..."
+				// - tool.status: Flush immediately so UI can show "Event created ✓"
+				// - Other events: Flush immediately for responsiveness
+				//
+				// Note: Gemini sends tool calls AFTER text generation completes,
+				// so text streaming is never blocked by tool execution
 				flusher.Flush()
-				log.Printf("Flushed event #%d to client", eventID)
 
 				// Exit on completion or error
 				if event.Type == "stream.done" || event.Type == "error" {
