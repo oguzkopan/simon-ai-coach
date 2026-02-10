@@ -66,7 +66,20 @@ struct MomentView: View {
             }
         }
         .sheet(isPresented: $vm.showPaywall) {
-            PaywallView()
+            PaywallView(
+                onDismiss: {
+                    vm.showPaywall = false
+                },
+                onPurchaseComplete: { success, message in
+                    vm.showPaywall = false
+                    // Reload remaining moments after purchase
+                    if success {
+                        Task {
+                            await vm.loadRemainingMoments()
+                        }
+                    }
+                }
+            )
         }
         .sheet(item: $vm.selectedRoutine) { routine in
             SystemDetailView(system: routine)

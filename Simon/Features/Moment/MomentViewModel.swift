@@ -375,7 +375,8 @@ final class MomentViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
             coachName: coachName,
             apiClient: apiClient,
             initialPrompt: initialPrompt,
-            isNewSession: false // Session already has messages from backend
+            isNewSession: false, // Session already has messages from backend
+            purchasesService: purchases
         )
     }
     

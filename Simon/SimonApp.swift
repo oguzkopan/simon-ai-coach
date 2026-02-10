@@ -19,6 +19,7 @@ import AppIntents
 struct SimonApp: App {
     @StateObject private var themeStore = ThemeStore()
     @StateObject private var deepLinkHandler = DeepLinkHandler()
+    @StateObject private var purchasesService = PurchasesService()
     @Environment(\.scenePhase) private var scenePhase
     
     init() {
@@ -37,7 +38,10 @@ struct SimonApp: App {
         
         // RevenueCat initialization
         Purchases.logLevel = .info
+        
+        // Use production App Store API key
         Purchases.configure(withAPIKey: "appl_jUOcBOAodBWrctklDLzWLLQJeDv")
+        print("🔧 RevenueCat configured with PRODUCTION API key")
         
         // Register app shortcuts
         SimonShortcuts.updateAppShortcutParameters()
@@ -51,6 +55,7 @@ struct SimonApp: App {
             RootView()
                 .environmentObject(themeStore)
                 .environmentObject(deepLinkHandler)
+                .environmentObject(purchasesService)
                 .preferredColorScheme(themeStore.colorSchemeOverride())
                 .onOpenURL { url in
                     // Handle Google Sign-In URL callback

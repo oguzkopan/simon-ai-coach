@@ -9,9 +9,15 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject private var theme: ThemeStore
+    @EnvironmentObject private var purchases: PurchasesService
     @StateObject private var vm: SettingsViewModel
     @StateObject private var authManager = AuthenticationManager.shared
     @Environment(\.dismiss) private var dismiss
+    @State private var showPaywall = false
+    @State private var showManageSubscription = false
+    @State private var showPurchaseResult = false
+    @State private var purchaseSuccess = false
+    @State private var purchaseResultMessage: String?
     
     init(vm: SettingsViewModel) {
         _vm = StateObject(wrappedValue: vm)
@@ -27,6 +33,10 @@ struct SettingsView: View {
                     }
                     
                     previewSection
+                    
+                    // Subscription section
+                    subscriptionSection
+                    
                     themeSection
                     accentColorSection
                     typographySection
@@ -89,6 +99,67 @@ struct SettingsView: View {
                 Text(errorMessage)
             }
         }
+        .fullScreenCover(isPresented: $showPaywall) {
+            PaywallView(
+                onDismiss: {
+                    showPaywall = false
+                },
+                onPurchaseComplete: { success, message in
+                    showPaywall = false
+                    purchaseSuccess = success
+                    purchaseResultMessage = message
+                    showPurchaseResult = true
+                    
+                    if success {
+                        // Reload customer info
+                        Task {
+                            await purchases.loadCustomerInfo()
+                        }
+                    }
+                    
+                    // Auto-dismiss success message after 3 seconds
+                    if success {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                            withAnimation {
+                                showPurchaseResult = false
+                            }
+                        }
+                    }
+                }
+            )
+        }
+        .sheet(isPresented: $showManageSubscription) {
+            ManageSubscriptionView()
+        }
+        .overlay {
+            // Purchase result popup
+            if showPurchaseResult {
+                ZStack {
+                    Color.black.opacity(0.4)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            if !purchaseSuccess {
+                                withAnimation {
+                                    showPurchaseResult = false
+                                }
+                            }
+                        }
+                    
+                    PurchaseResultPopup(
+                        isSuccess: purchaseSuccess,
+                        message: purchaseResultMessage ?? "",
+                        onDismiss: {
+                            withAnimation {
+                                showPurchaseResult = false
+                            }
+                        }
+                    )
+                    .transition(.scale(scale: 0.8).combined(with: .opacity))
+                }
+                .zIndex(1000)
+            }
+        }
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: showPurchaseResult)
     }
     
     // MARK: - Sign In Section
@@ -197,6 +268,146 @@ struct SettingsView: View {
             }
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.systemBackground))
+            .cornerRadius(16)
+            .shadow(color: Color.black.opacity(0.05), radius: 10, x: 0, y: 4)
+        }
+    }
+    
+    // MARK: - Subscription Section
+    
+    private var subscriptionSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("SUBSCRIPTION")
+                .font(theme.font(11, weight: .semibold))
+                .foregroundColor(.secondary)
+                .tracking(0.5)
+            
+            VStack(spacing: 0) {
+                if purchases.isPro {
+                    // Pro user - show status and manage button
+                    VStack(spacing: 16) {
+                        HStack(spacing: 12) {
+                            ZStack {
+                                Circle()
+                                    .fill(theme.accentPrimary.opacity(0.1))
+                                    .frame(width: 48, height: 48)
+                                
+                                Image(systemName: "crown.fill")
+                                    .font(.system(size: 24))
+                                    .foregroundColor(theme.accentPrimary)
+                            }
+                            
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Simon Pro")
+                                    .font(theme.font(17, weight: .semibold))
+                                    .foregroundColor(.primary)
+                                
+                                Text("Active subscription")
+                                    .font(theme.font(13))
+                                    .foregroundColor(.secondary)
+                            }
+                            
+                            Spacer()
+                            
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 24))
+                                .foregroundColor(.green)
+                        }
+                        .padding(16)
+                        
+                        Divider()
+                        
+                        // Benefits list
+                        VStack(alignment: .leading, spacing: 12) {
+                            BenefitRow(icon: "infinity", text: "Unlimited messages", isActive: true)
+                            BenefitRow(icon: "square.and.arrow.up", text: "Publish & share coaches", isActive: true)
+                            BenefitRow(icon: "arrow.triangle.2.circlepath", text: "Advanced system mode", isActive: true)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 12)
+                        
+                        Divider()
+                        
+                        // Manage subscription button
+                        Button(action: {
+                            showManageSubscription = true
+                        }) {
+                            HStack {
+                                Text("Manage Subscription")
+                                    .font(theme.font(15, weight: .medium))
+                                    .foregroundColor(theme.accentPrimary)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(16)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } else {
+                    // Free user - show upgrade prompt
+                    VStack(spacing: 16) {
+                        HStack(spacing: 12) {
+                            ZStack {
+                                Circle()
+                                    .fill(Color(.systemGray5))
+                                    .frame(width: 48, height: 48)
+                                
+                                Image(systemName: "star.fill")
+                                    .font(.system(size: 24))
+                                    .foregroundColor(.secondary)
+                            }
+                            
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Simon Free")
+                                    .font(theme.font(17, weight: .semibold))
+                                    .foregroundColor(.primary)
+                                
+                                Text("Limited to 3 messages per session")
+                                    .font(theme.font(13))
+                                    .foregroundColor(.secondary)
+                            }
+                            
+                            Spacer()
+                        }
+                        .padding(16)
+                        
+                        Divider()
+                        
+                        // Benefits list (grayed out)
+                        VStack(alignment: .leading, spacing: 12) {
+                            BenefitRow(icon: "infinity", text: "Unlimited messages", isActive: false)
+                            BenefitRow(icon: "square.and.arrow.up", text: "Publish & share coaches", isActive: false)
+                            BenefitRow(icon: "arrow.triangle.2.circlepath", text: "Advanced system mode", isActive: false)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 12)
+                        
+                        Divider()
+                        
+                        // Upgrade button
+                        Button(action: {
+                            showPaywall = true
+                        }) {
+                            HStack {
+                                Image(systemName: "arrow.up.circle.fill")
+                                    .font(.system(size: 20))
+                                Text("Upgrade to Pro")
+                                    .font(theme.font(15, weight: .semibold))
+                            }
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(theme.accentPrimary)
+                            .cornerRadius(12)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(16)
+                    }
+                }
+            }
             .background(Color(.systemBackground))
             .cornerRadius(16)
             .shadow(color: Color.black.opacity(0.05), radius: 10, x: 0, y: 4)
@@ -626,6 +837,111 @@ struct CustomerCenterView: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") {
                         dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Benefit Row Component
+
+struct BenefitRow: View {
+    let icon: String
+    let text: String
+    let isActive: Bool
+    
+    @EnvironmentObject private var theme: ThemeStore
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 16))
+                .foregroundColor(isActive ? theme.accentPrimary : .secondary)
+                .frame(width: 24)
+            
+            Text(text)
+                .font(theme.font(14))
+                .foregroundColor(isActive ? .primary : .secondary)
+            
+            Spacer()
+            
+            if isActive {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.green)
+            } else {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+}
+
+// MARK: - Manage Subscription View
+
+struct ManageSubscriptionView: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var theme: ThemeStore
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 24) {
+                Spacer()
+                
+                Image(systemName: "crown.fill")
+                    .font(.system(size: 64))
+                    .foregroundColor(.yellow)
+                
+                Text("Manage Subscription")
+                    .font(theme.font(24, weight: .bold))
+                
+                Text("Manage your subscription, billing, and payment methods through the App Store.")
+                    .font(theme.font(15))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+                
+                Spacer()
+                
+                VStack(spacing: 12) {
+                    Button(action: {
+                        if let url = URL(string: "https://apps.apple.com/account/subscriptions") {
+                            UIApplication.shared.open(url)
+                        }
+                    }) {
+                        HStack {
+                            Image(systemName: "app.badge")
+                                .font(.system(size: 20))
+                            Text("Open App Store")
+                                .font(theme.font(17, weight: .semibold))
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(theme.accentPrimary)
+                        .cornerRadius(12)
+                    }
+                    .buttonStyle(.plain)
+                    
+                    Button("Done") {
+                        dismiss()
+                    }
+                    .font(theme.font(15))
+                    .foregroundColor(theme.accentPrimary)
+                    .padding(.vertical, 8)
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 32)
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: { dismiss() }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 24))
+                            .foregroundColor(.secondary)
                     }
                 }
             }

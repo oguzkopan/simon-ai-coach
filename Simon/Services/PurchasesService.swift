@@ -25,7 +25,7 @@ final class PurchasesService: ObservableObject {
         do {
             let info = try await Purchases.shared.customerInfo()
             self.customerInfo = info
-            self.isPro = info.entitlements["pro"]?.isActive == true
+            self.isPro = info.entitlements["Simon Pro"]?.isActive == true
         } catch {
             print("Failed to load customer info: \(error)")
         }
@@ -34,6 +34,6 @@ final class PurchasesService: ObservableObject {
     func restorePurchases() async throws {
         let info = try await Purchases.shared.restorePurchases()
         self.customerInfo = info
-        self.isPro = info.entitlements["pro"]?.isActive == true
+        self.isPro = info.entitlements["Simon Pro"]?.isActive == true
     }
 }

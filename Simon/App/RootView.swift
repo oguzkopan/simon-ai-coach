@@ -129,7 +129,8 @@ struct MainTabView: View {
                             coachName: coachName,
                             apiClient: apiClient,
                             initialPrompt: initialPrompt,
-                            isNewSession: true // This is a newly created session from CoachDetailView
+                            isNewSession: true, // This is a newly created session from CoachDetailView
+                            purchasesService: purchasesService
                         ))
                     }
                 }
@@ -165,7 +166,8 @@ struct MainTabView: View {
                                 coachName: coachName,
                                 apiClient: apiClient,
                                 initialPrompt: nil,
-                                isNewSession: false // This is an existing session from Library
+                                isNewSession: false, // This is an existing session from Library
+                                purchasesService: purchasesService
                             ))
                         }
                     }
@@ -289,6 +291,7 @@ struct BrowseView: View {
                 purchases: purchasesService
             ))
             .environmentObject(theme)
+        .environmentObject(purchasesService)
         }
         .sheet(isPresented: $showSignIn) {
             SignInView()

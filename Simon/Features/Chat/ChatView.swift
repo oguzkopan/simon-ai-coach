@@ -3,8 +3,13 @@ import SwiftUI
 struct ChatView: View {
     @StateObject private var viewModel: ChatViewModel
     @EnvironmentObject private var theme: ThemeStore
+    @EnvironmentObject private var purchases: PurchasesService
     @State private var scrollProxy: ScrollViewProxy?
     @FocusState private var isInputFocused: Bool
+    @State private var showPaywall = false
+    @State private var purchaseResultMessage: String?
+    @State private var showPurchaseResult = false
+    @State private var purchaseSuccess = false
     
     // Attachment Picker State
     @State private var showImagePicker = false
@@ -61,6 +66,48 @@ struct ChatView: View {
     
     var body: some View {
         VStack(spacing: 0) {
+            // Message limit banner for unsubscribed users
+            if !purchases.isPro && viewModel.remainingMessages >= 0 {
+                HStack {
+                    Image(systemName: viewModel.hasReachedMessageLimit ? "exclamationmark.triangle.fill" : "message.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(viewModel.hasReachedMessageLimit ? .orange : theme.accentPrimary)
+                    
+                    if viewModel.hasReachedMessageLimit {
+                        Text("Message limit reached")
+                            .font(theme.font(13, weight: .medium))
+                        
+                        Spacer()
+                        
+                        Button("Upgrade") {
+                            showPaywall = true
+                        }
+                        .font(theme.font(13, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(theme.accentPrimary)
+                        .cornerRadius(8)
+                    } else {
+                        Text("\(viewModel.remainingMessages) message\(viewModel.remainingMessages == 1 ? "" : "s") remaining")
+                            .font(theme.font(13, weight: .medium))
+                        
+                        Spacer()
+                        
+                        Button("Upgrade") {
+                            showPaywall = true
+                        }
+                        .font(theme.font(13, weight: .semibold))
+                        .foregroundColor(theme.accentPrimary)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(viewModel.hasReachedMessageLimit ? Color.orange.opacity(0.1) : Color(.systemGray6))
+                
+                Divider()
+            }
+            
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 12) {
@@ -392,7 +439,11 @@ struct ChatView: View {
                             if viewModel.isStreaming {
                                 viewModel.stopStreaming()
                             } else {
-                                viewModel.send()
+                                if viewModel.hasReachedMessageLimit {
+                                    showPaywall = true
+                                } else {
+                                    viewModel.send()
+                                }
                             }
                         }) {
                             Image(systemName: viewModel.isStreaming ? "stop.circle.fill" : "arrow.up.circle.fill")
@@ -426,11 +477,70 @@ struct ChatView: View {
                 sessionID: viewModel.sessionID
             )
             
+            // Load message count
+            viewModel.loadMessageCount()
+            
             if viewModel.messages.isEmpty && !viewModel.isLoadingMessages {
                 print("🟢 Calling loadMessages()")
                 await viewModel.loadMessages()
             }
         }
+        .fullScreenCover(isPresented: $showPaywall) {
+            PaywallView(
+                onDismiss: {
+                    showPaywall = false
+                },
+                onPurchaseComplete: { success, message in
+                    showPaywall = false
+                    purchaseSuccess = success
+                    purchaseResultMessage = message
+                    showPurchaseResult = true
+                    
+                    // Reload message count after purchase
+                    if success {
+                        viewModel.loadMessageCount()
+                    }
+                    
+                    // Auto-dismiss success message after 3 seconds
+                    if success {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                            withAnimation {
+                                showPurchaseResult = false
+                            }
+                        }
+                    }
+                }
+            )
+        }
+        .overlay {
+            // Purchase result popup
+            if showPurchaseResult {
+                ZStack {
+                    Color.black.opacity(0.4)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            if !purchaseSuccess {
+                                withAnimation {
+                                    showPurchaseResult = false
+                                }
+                            }
+                        }
+                    
+                    PurchaseResultPopup(
+                        isSuccess: purchaseSuccess,
+                        message: purchaseResultMessage ?? "",
+                        onDismiss: {
+                            withAnimation {
+                                showPurchaseResult = false
+                            }
+                        }
+                    )
+                    .transition(.scale(scale: 0.8).combined(with: .opacity))
+                }
+                .zIndex(1000)
+            }
+        }
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: showPurchaseResult)
         .sheet(isPresented: $showImagePicker) {
             ImagePicker(image: $viewModel.selectedImage)
         }

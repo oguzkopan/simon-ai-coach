@@ -49,6 +49,10 @@ final class ChatViewModel: ObservableObject {
     @Published var toolRequest: ToolRequestPayload? // Shown inline, not as sheet
     @Published var policyNotice: String?
     
+    // Message limit tracking for unsubscribed users
+    @Published var remainingMessages: Int = 3
+    @Published var hasReachedMessageLimit: Bool = false
+    
     // Tool request history with approval status
     struct ToolRequestHistory: Identifiable {
         let id: String
@@ -80,11 +84,14 @@ final class ChatViewModel: ObservableObject {
     private var sessionUID: String?
     var sessionCoachID: String? // Made public for analytics
     
+    // Purchases service for subscription checking
+    private var purchasesService: PurchasesService?
+    
     func removeAttachment(id: UUID) {
         localAttachments.removeAll { $0.id == id }
     }
     
-    init(sessionID: String, coachName: String, apiClient: SimonAPI, toolExecutor: ToolExecutor? = nil, initialPrompt: String? = nil, isNewSession: Bool = false) {
+    init(sessionID: String, coachName: String, apiClient: SimonAPI, toolExecutor: ToolExecutor? = nil, initialPrompt: String? = nil, isNewSession: Bool = false, purchasesService: PurchasesService? = nil) {
         print("🟢 ChatViewModel init - sessionID: \(sessionID), coachName: \(coachName), isNewSession: \(isNewSession)")
         self.sessionID = sessionID
         self.coachName = coachName
@@ -92,6 +99,42 @@ final class ChatViewModel: ObservableObject {
         self.toolExecutor = toolExecutor ?? ToolExecutor(apiClient: apiClient)
         self.initialPrompt = initialPrompt
         self.isNewSession = isNewSession
+        self.purchasesService = purchasesService
+    }
+    
+    // Load message count for unsubscribed users
+    func loadMessageCount() {
+        guard let isPro = purchasesService?.isPro, !isPro else {
+            // Pro users have unlimited messages
+            remainingMessages = -1
+            hasReachedMessageLimit = false
+            return
+        }
+        
+        // Get message count for this session
+        let key = "message_count_\(sessionID)"
+        let count = UserDefaults.standard.integer(forKey: key)
+        remainingMessages = max(0, 3 - count)
+        hasReachedMessageLimit = remainingMessages <= 0
+        
+        print("📊 Message count loaded: \(count)/3, remaining: \(remainingMessages)")
+    }
+    
+    // Increment message count for unsubscribed users
+    private func incrementMessageCount() {
+        guard let isPro = purchasesService?.isPro, !isPro else {
+            return
+        }
+        
+        let key = "message_count_\(sessionID)"
+        let count = UserDefaults.standard.integer(forKey: key)
+        let newCount = count + 1
+        UserDefaults.standard.set(newCount, forKey: key)
+        
+        remainingMessages = max(0, 3 - newCount)
+        hasReachedMessageLimit = remainingMessages <= 0
+        
+        print("📊 Message count incremented: \(newCount)/3, remaining: \(remainingMessages)")
     }
     
     func loadMessages() async {
@@ -257,6 +300,12 @@ final class ChatViewModel: ObservableObject {
     func send() {
         guard !composerText.isEmpty || !localAttachments.isEmpty else { return }
         
+        // Check message limit for unsubscribed users
+        if hasReachedMessageLimit {
+            errorMessage = "You've reached your message limit. Upgrade to Pro for unlimited messages."
+            return
+        }
+        
         let userText = composerText
         // Local references to process
         let attachmentsToProcess = localAttachments
@@ -301,6 +350,9 @@ final class ChatViewModel: ObservableObject {
             // 2. Add user message to UI
             // We use the same Task context so simple property access is safe, but explicit MainActor.run is better for updates
             await MainActor.run {
+                
+                // Increment message count for unsubscribed users
+                self.incrementMessageCount()
                 
                 // Log analytics
                 AnalyticsManager.shared.logMessageSent(
