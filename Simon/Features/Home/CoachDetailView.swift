@@ -232,9 +232,14 @@ struct CoachDetailView: View {
             await checkIfSaved()
         }
         .sheet(isPresented: $showSignInPrompt) {
-            SignInPromptView(showSignIn: .constant(false))
-                .presentationDetents([.medium])
-                .presentationDragIndicator(.visible)
+            SignInPromptView(
+                showSignIn: .constant(false),
+                iconName: "bookmark.fill",
+                title: "Save Your Favorites",
+                message: "Sign in to save your favorite coaches and access them anytime across all your devices."
+            )
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showFullSpec) {
             CoachSpecDetailSheet(coach: coach, apiClient: apiClient)

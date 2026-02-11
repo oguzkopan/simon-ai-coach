@@ -5,8 +5,11 @@ import Combine
 
 enum SSEEvent {
     case streamOpen(StreamOpenPayload)
+    case coachSelected(CoachSelectedPayload)
+    case processingStep(ProcessingStepPayload)
     case messageDelta(MessageDeltaPayload)
     case messageFinal(MessageFinalPayload)
+    case audioChunk(AudioChunkPayload)
     case cardNextActions(NextActionsCardPayload)
     case cardPlan(PlanCardPayload)
     case cardWeeklyReview(WeeklyReviewCardPayload)
@@ -23,11 +26,28 @@ enum SSEEvent {
 struct StreamOpenPayload: Codable {
     let sessionId: String
     let serverTimeIso: String
+    let coachSelecting: Bool? // True if coach selection is in progress
     
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
         case serverTimeIso = "server_time_iso"
+        case coachSelecting = "coach_selecting"
     }
+}
+
+struct CoachSelectedPayload: Codable {
+    let coachId: String
+    let coachName: String
+    
+    enum CodingKeys: String, CodingKey {
+        case coachId = "coach_id"
+        case coachName = "coach_name"
+    }
+}
+
+struct ProcessingStepPayload: Codable {
+    let step: String
+    let message: String
 }
 
 struct MessageDeltaPayload: Codable {
@@ -54,6 +74,16 @@ struct MessageFinalPayload: Codable {
         enum CodingKeys: String, CodingKey {
             case maxCards = "max_cards"
         }
+    }
+}
+
+struct AudioChunkPayload: Codable {
+    let audio: String      // Base64 encoded MP3 audio
+    let isFinal: Bool      // True if this is the last chunk
+    
+    enum CodingKeys: String, CodingKey {
+        case audio
+        case isFinal = "is_final"
     }
 }
 
@@ -472,6 +502,14 @@ class SSEStreamManager {
             let payload = try decoder.decode(StreamOpenPayload.self, from: jsonData)
             return .streamOpen(payload)
             
+        case "coach.selected":
+            let payload = try decoder.decode(CoachSelectedPayload.self, from: jsonData)
+            return .coachSelected(payload)
+            
+        case "processing.step":
+            let payload = try decoder.decode(ProcessingStepPayload.self, from: jsonData)
+            return .processingStep(payload)
+            
         case "message.delta":
             let payload = try decoder.decode(MessageDeltaPayload.self, from: jsonData)
             return .messageDelta(payload)
@@ -479,6 +517,10 @@ class SSEStreamManager {
         case "message.final":
             let payload = try decoder.decode(MessageFinalPayload.self, from: jsonData)
             return .messageFinal(payload)
+            
+        case "audio_chunk":
+            let payload = try decoder.decode(AudioChunkPayload.self, from: jsonData)
+            return .audioChunk(payload)
             
         case "card.next_actions":
             let payload = try decoder.decode(NextActionsCardPayload.self, from: jsonData)
@@ -634,5 +676,14 @@ struct ChatStreamRequest: Codable {
     let userText: String
     let attachments: [Attachment]?
     let userTimezone: String
-    let userLocalTime: String 
+    let userLocalTime: String
+    let voiceOverEnabled: Bool?
+    
+    enum CodingKeys: String, CodingKey {
+        case userText = "user_text"
+        case attachments
+        case userTimezone = "user_timezone"
+        case userLocalTime = "user_local_time"
+        case voiceOverEnabled = "voice_over_enabled"
+    }
 }

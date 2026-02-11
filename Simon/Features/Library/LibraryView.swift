@@ -2,10 +2,12 @@ import SwiftUI
 
 struct LibraryView: View {
     @StateObject private var vm: LibraryViewModel
+    @StateObject private var authManager = AuthenticationManager.shared
     @EnvironmentObject private var theme: ThemeStore
     
     @State private var showThisWeek = true
     @State private var showArchive = false
+    @State private var authErrorMessage: String?
     
     init(vm: LibraryViewModel) {
         _vm = StateObject(wrappedValue: vm)
@@ -31,8 +33,14 @@ struct LibraryView: View {
                     .padding(.horizontal, 20)
                     .padding(.top, 12)
                     
+                    // Sign In Prompt (when not authenticated)
+                    if !authManager.isAuthenticated {
+                        signInPrompt
+                            .padding(.horizontal, 20)
+                            .padding(.top, 40)
+                    }
                     // Loading State
-                    if vm.isLoading {
+                    else if vm.isLoading {
                         VStack(spacing: 16) {
                             ProgressView()
                             Text("Loading your library...")
@@ -162,7 +170,18 @@ struct LibraryView: View {
             }
         }
         .task {
-            await vm.loadData()
+            // Only load data if authenticated
+            if authManager.isAuthenticated {
+                await vm.loadData()
+            }
+        }
+        .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
+            // Load data when user signs in
+            if isAuthenticated {
+                Task {
+                    await vm.refresh()
+                }
+            }
         }
         .sheet(item: $vm.selectedSystem) { system in
             SystemDetailView(system: system)
@@ -335,6 +354,91 @@ struct SessionRowCard: View {
 // MARK: - My Progress Section
 
 extension LibraryView {
+    private var signInPrompt: some View {
+        VStack(spacing: 24) {
+            VStack(spacing: 16) {
+                Image(systemName: "books.vertical.fill")
+                    .font(.system(size: 56))
+                    .foregroundColor(theme.accentPrimary)
+                
+                Text("Sign in to access your library")
+                    .font(theme.font(22, weight: .bold))
+                    .foregroundColor(.primary)
+                
+                Text("Your sessions, plans, and progress will be saved and synced across all your devices.")
+                    .font(theme.font(15))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(4)
+                    .padding(.horizontal, 20)
+            }
+            .padding(.top, 20)
+            
+            VStack(spacing: 12) {
+                Button(action: {
+                    Task {
+                        do {
+                            try await authManager.signInWithApple()
+                        } catch {
+                            authErrorMessage = error.localizedDescription
+                        }
+                    }
+                }) {
+                    HStack {
+                        Image(systemName: "apple.logo")
+                            .font(.system(size: 18, weight: .semibold))
+                        Text("Continue with Apple")
+                            .font(theme.font(16, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Color.black)
+                    .cornerRadius(12)
+                }
+                .buttonStyle(.plain)
+                
+                Button(action: {
+                    Task {
+                        do {
+                            try await authManager.signInWithGoogle()
+                        } catch {
+                            authErrorMessage = error.localizedDescription
+                        }
+                    }
+                }) {
+                    HStack {
+                        Image(systemName: "g.circle.fill")
+                            .font(.system(size: 18, weight: .semibold))
+                        Text("Continue with Google")
+                            .font(theme.font(16, weight: .semibold))
+                    }
+                    .foregroundColor(.primary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Color(.systemBackground))
+                    .cornerRadius(12)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color(.systemGray4), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 20)
+        }
+        .frame(maxWidth: .infinity)
+        .alert("Sign In Error", isPresented: .constant(authErrorMessage != nil)) {
+            Button("OK") {
+                authErrorMessage = nil
+            }
+        } message: {
+            if let error = authErrorMessage {
+                Text(error)
+            }
+        }
+    }
+    
     private var myProgressSection: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {

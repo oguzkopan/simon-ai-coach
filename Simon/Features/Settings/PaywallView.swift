@@ -22,140 +22,209 @@ struct PaywallView: View {
     @State private var selectedPackage: Package?
     
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
+        ZStack {
+            // Background gradient
+            LinearGradient(
+                colors: [
+                    theme.accentPrimary.opacity(0.05),
+                    Color(.systemBackground)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+            
+            NavigationStack {
                 ScrollView {
-                    VStack(spacing: 24) {
-                        Spacer()
-                            .frame(height: 20)
-                        
-                        VStack(spacing: 16) {
-                            Image(systemName: "star.circle.fill")
-                                .font(.system(size: 64))
-                                .foregroundColor(theme.accentPrimary)
+                    VStack(spacing: 32) {
+                        // Header
+                        VStack(spacing: 12) {
+                            ZStack {
+                                Circle()
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [theme.accentPrimary, theme.accentPrimary.opacity(0.7)],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
+                                    .frame(width: 80, height: 80)
+                                
+                                Image(systemName: "star.fill")
+                                    .font(.system(size: 36, weight: .bold))
+                                    .foregroundColor(.white)
+                            }
+                            .padding(.top, 20)
                             
                             Text("Upgrade to Pro")
-                                .font(theme.font(28, weight: .bold))
+                                .font(theme.font(32, weight: .bold))
                             
                             Text("Build systems that stick")
                                 .font(theme.font(17))
                                 .foregroundColor(.secondary)
                         }
                         
-                        VStack(alignment: .leading, spacing: 16) {
+                        // Features
+                        VStack(spacing: 20) {
                             FeatureRow(
                                 icon: "infinity",
                                 title: "Unlimited Messages",
-                                description: "Get guidance whenever you need it"
+                                description: "Get guidance whenever you need it",
+                                color: .blue
                             )
                             
                             FeatureRow(
                                 icon: "square.and.arrow.up",
                                 title: "Publish & Share Coaches",
-                                description: "Share your custom coaches with the community"
+                                description: "Share your custom coaches with the community",
+                                color: .purple
                             )
                             
                             FeatureRow(
                                 icon: "arrow.triangle.2.circlepath",
                                 title: "Turn Advice into Systems",
-                                description: "Advanced system mode with schedules and metrics"
+                                description: "Advanced system mode with schedules and metrics",
+                                color: .orange
                             )
                         }
-                        .padding(.horizontal, 16)
-                        
-                        Spacer()
-                            .frame(height: 20)
+                        .padding(.horizontal, 20)
                         
                         // Product offerings
                         if isLoading {
-                            ProgressView()
-                                .padding()
-                        } else if let errorMessage = errorMessage {
-                            VStack(spacing: 12) {
-                                Text(errorMessage)
+                            VStack(spacing: 16) {
+                                ProgressView()
+                                    .scaleEffect(1.2)
+                                Text("Loading plans...")
                                     .font(theme.font(14))
                                     .foregroundColor(.secondary)
-                                    .multilineTextAlignment(.center)
+                            }
+                            .frame(height: 200)
+                        } else if let errorMessage = errorMessage {
+                            VStack(spacing: 16) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .font(.system(size: 40))
+                                    .foregroundColor(.orange)
                                 
-                                Button("Retry") {
+                                Text(errorMessage)
+                                    .font(theme.font(15))
+                                    .foregroundColor(.secondary)
+                                    .multilineTextAlignment(.center)
+                                    .padding(.horizontal, 32)
+                                
+                                Button(action: {
                                     Task {
                                         await loadOfferings()
                                     }
+                                }) {
+                                    Text("Retry")
+                                        .font(theme.font(16, weight: .semibold))
+                                        .foregroundColor(.white)
+                                        .frame(width: 120, height: 44)
+                                        .background(theme.accentPrimary)
+                                        .cornerRadius(22)
                                 }
-                                .font(theme.font(15, weight: .semibold))
-                                .foregroundColor(theme.accentPrimary)
                             }
-                            .padding()
+                            .padding(.vertical, 32)
                         } else if let offerings = offerings, let packages = offerings.current?.availablePackages, !packages.isEmpty {
-                            VStack(spacing: 12) {
-                                ForEach(packages, id: \.identifier) { package in
-                                    ProductCard(
-                                        package: package,
-                                        isSelected: selectedPackage?.identifier == package.identifier,
-                                        isPurchasing: isPurchasing && selectedPackage?.identifier == package.identifier
-                                    ) {
-                                        selectedPackage = package
-                                        Task {
-                                            await purchase(package)
-                                        }
+                            VStack(spacing: 16) {
+                                Text("Choose Your Plan")
+                                    .font(theme.font(20, weight: .bold))
+                                    .padding(.top, 8)
+                                
+                                VStack(spacing: 12) {
+                                    ForEach(packages, id: \.identifier) { package in
+                                        ProductCard(
+                                            package: package,
+                                            isSelected: selectedPackage?.identifier == package.identifier,
+                                            isPurchasing: isPurchasing && selectedPackage?.identifier == package.identifier,
+                                            onTap: {
+                                                selectedPackage = package
+                                                Task {
+                                                    await purchase(package)
+                                                }
+                                            },
+                                            allPackages: packages
+                                        )
                                     }
                                 }
+                                .padding(.horizontal, 20)
                                 
-                                Button("Restore Purchases") {
+                                Button(action: {
                                     Task {
                                         await restorePurchases()
                                     }
+                                }) {
+                                    Text("Restore Purchases")
+                                        .font(theme.font(15))
+                                        .foregroundColor(.secondary)
                                 }
-                                .font(theme.font(15))
-                                .foregroundColor(theme.accentPrimary)
                                 .padding(.top, 8)
                             }
-                            .padding(.horizontal, 16)
                         } else {
-                            VStack(spacing: 12) {
+                            VStack(spacing: 16) {
                                 Button(action: {
                                     Task {
                                         await purchase(nil)
                                     }
                                 }) {
-                                    Text("Start Pro")
-                                        .font(theme.font(17, weight: .semibold))
-                                        .frame(maxWidth: .infinity)
-                                        .frame(height: 52)
+                                    HStack {
+                                        if isPurchasing {
+                                            ProgressView()
+                                                .tint(.white)
+                                        } else {
+                                            Text("Start Pro")
+                                                .font(theme.font(18, weight: .semibold))
+                                        }
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 56)
+                                    .background(
+                                        LinearGradient(
+                                            colors: [theme.accentPrimary, theme.accentPrimary.opacity(0.8)],
+                                            startPoint: .leading,
+                                            endPoint: .trailing
+                                        )
+                                    )
+                                    .foregroundColor(.white)
+                                    .cornerRadius(16)
+                                    .shadow(color: theme.accentPrimary.opacity(0.3), radius: 8, y: 4)
                                 }
-                                .background(theme.accentPrimary)
-                                .foregroundColor(.white)
-                                .cornerRadius(12)
                                 .disabled(isPurchasing)
                                 
-                                Button("Not now") {
-                                    onDismiss()
+                                Button(action: onDismiss) {
+                                    Text("Not now")
+                                        .font(theme.font(16))
+                                        .foregroundColor(.secondary)
                                 }
-                                .font(theme.font(15))
-                                .foregroundColor(theme.accentPrimary)
                             }
-                            .padding(.horizontal, 16)
+                            .padding(.horizontal, 20)
                         }
                         
                         Spacer()
                             .frame(height: 40)
                     }
                 }
-            }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: onDismiss) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 28))
-                            .foregroundColor(.secondary)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button(action: onDismiss) {
+                            ZStack {
+                                Circle()
+                                    .fill(Color(.systemGray5))
+                                    .frame(width: 32, height: 32)
+                                
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
                     }
                 }
-            }
-            .onAppear {
-                AnalyticsManager.shared.logPaywallViewed()
-                Task {
-                    await loadOfferings()
+                .onAppear {
+                    AnalyticsManager.shared.logPaywallViewed()
+                    Task {
+                        await loadOfferings()
+                    }
                 }
             }
         }
@@ -265,25 +334,39 @@ struct FeatureRow: View {
     let icon: String
     let title: String
     let description: String
+    let color: Color
     
     @EnvironmentObject private var theme: ThemeStore
     
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 20))
-                .foregroundColor(theme.accentPrimary)
-                .frame(width: 32, height: 32)
+        HStack(alignment: .center, spacing: 16) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(color.opacity(0.15))
+                    .frame(width: 48, height: 48)
+                
+                Image(systemName: icon)
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundColor(color)
+            }
             
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(title)
-                    .font(theme.font(15, weight: .semibold))
+                    .font(theme.font(16, weight: .semibold))
+                    .foregroundColor(.primary)
                 
                 Text(description)
-                    .font(theme.font(13))
+                    .font(theme.font(14))
                     .foregroundColor(.secondary)
+                    .lineLimit(2)
             }
+            
+            Spacer()
         }
+        .padding(16)
+        .background(Color(.systemBackground))
+        .cornerRadius(16)
+        .shadow(color: Color.black.opacity(0.05), radius: 8, y: 2)
     }
 }
 
@@ -292,6 +375,7 @@ struct ProductCard: View {
     let isSelected: Bool
     let isPurchasing: Bool
     let onTap: () -> Void
+    let allPackages: [Package]
     
     @EnvironmentObject private var theme: ThemeStore
     
@@ -322,41 +406,51 @@ struct ProductCard: View {
         case .weekly:
             return priceDouble
         case .monthly:
-            return priceDouble / 4.0 // ~4 weeks per month
+            return priceDouble / 4.0
         case .annual:
-            return priceDouble / 52.0 // 52 weeks per year
+            return priceDouble / 52.0
         default:
             return priceDouble
         }
     }
     
-    private var savingsInfo: (percentage: Int, description: String)? {
-        // Base price is weekly at $3.99
-        let weeklyPrice = 3.99
-        let currentPricePerWeek = pricePerWeek
-        
-        switch package.packageType {
-        case .monthly:
-            // Monthly: $9.99 / 4 weeks = $2.50/week vs $3.99/week
-            let savings = ((weeklyPrice - currentPricePerWeek) / weeklyPrice) * 100
-            return (Int(savings), "Save \(Int(savings))%")
-        case .annual:
-            // Yearly: $79.99 / 52 weeks = $1.54/week vs $3.99/week
-            let savings = ((weeklyPrice - currentPricePerWeek) / weeklyPrice) * 100
-            return (Int(savings), "Save \(Int(savings))%")
-        default:
+    private var weeklyPackagePrice: Double? {
+        guard let weeklyPackage = allPackages.first(where: { $0.packageType == .weekly }) else {
             return nil
         }
+        let price = weeklyPackage.storeProduct.price as Decimal
+        return (price as NSDecimalNumber).doubleValue
+    }
+    
+    private var savingsInfo: (percentage: Int, description: String)? {
+        guard let weeklyPrice = weeklyPackagePrice,
+              package.packageType != .weekly else {
+            return nil
+        }
+        
+        let currentPricePerWeek = pricePerWeek
+        let savings = ((weeklyPrice - currentPricePerWeek) / weeklyPrice) * 100
+        
+        guard savings > 0 else { return nil }
+        
+        return (Int(savings), "Save \(Int(savings))%")
     }
     
     private var displayDescription: String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.locale = package.storeProduct.priceFormatter?.locale ?? Locale.current
+        
+        let pricePerWeekValue = pricePerWeek
+        let formattedPrice = formatter.string(from: NSNumber(value: pricePerWeekValue)) ?? ""
+        
         switch package.packageType {
         case .weekly:
-            return "$3.99 per week"
+            return "\(formattedPrice) per week"
         case .monthly:
-            return "~$2.50 per week"
+            return "~\(formattedPrice) per week"
         case .annual:
-            return "~$1.54 per week"
+            return "~\(formattedPrice) per week"
         case .lifetime:
             return "One-time payment"
         default:
@@ -364,63 +458,111 @@ struct ProductCard: View {
         }
     }
     
+    private var isPopular: Bool {
+        package.packageType == .annual
+    }
+    
     var body: some View {
         Button(action: onTap) {
-            VStack(spacing: 0) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 8) {
+            ZStack(alignment: .topTrailing) {
+                VStack(spacing: 0) {
+                    // Header with badges
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 6) {
                             Text(displayName)
-                                .font(theme.font(17, weight: .semibold))
-                                .foregroundColor(.primary)
+                                .font(theme.font(20, weight: .bold))
+                                .foregroundColor(isSelected ? .white : .primary)
                             
-                            // Savings badge
-                            if let savings = savingsInfo {
-                                Text(savings.description)
-                                    .font(theme.font(11, weight: .bold))
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(Color.green)
-                                    .cornerRadius(6)
-                            }
-                            
-                            // Most popular badge for yearly
-                            if package.packageType == .annual {
-                                Text("MOST POPULAR")
-                                    .font(theme.font(9, weight: .bold))
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 3)
-                                    .background(theme.accentPrimary)
-                                    .cornerRadius(4)
-                            }
+                            Text(displayDescription)
+                                .font(theme.font(14))
+                                .foregroundColor(isSelected ? .white.opacity(0.9) : .secondary)
                         }
                         
-                        Text(displayDescription)
-                            .font(theme.font(13))
-                            .foregroundColor(.secondary)
+                        Spacer()
                     }
+                    .padding(.bottom, 16)
                     
-                    Spacer()
-                    
-                    if isPurchasing {
-                        ProgressView()
-                    } else {
-                        Text(displayPrice)
-                            .font(theme.font(20, weight: .bold))
-                            .foregroundColor(theme.accentPrimary)
+                    // Price section
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        if isPurchasing {
+                            ProgressView()
+                                .tint(isSelected ? .white : theme.accentPrimary)
+                        } else {
+                            Text(displayPrice)
+                                .font(theme.font(28, weight: .bold))
+                                .foregroundColor(isSelected ? .white : theme.accentPrimary)
+                        }
+                        
+                        Spacer()
+                        
+                        // Savings badge
+                        if let savings = savingsInfo {
+                            VStack(spacing: 2) {
+                                Text(savings.description)
+                                    .font(theme.font(12, weight: .bold))
+                                    .foregroundColor(.white)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(
+                                Capsule()
+                                    .fill(Color.green)
+                            )
+                        }
                     }
                 }
-                .padding(16)
+                .padding(20)
+                .frame(maxWidth: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(
+                            isSelected
+                                ? LinearGradient(
+                                    colors: [theme.accentPrimary, theme.accentPrimary.opacity(0.8)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                                : LinearGradient(
+                                    colors: [Color(.systemBackground), Color(.systemBackground)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                        )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .strokeBorder(
+                            isSelected
+                                ? Color.clear
+                                : (isPopular ? theme.accentPrimary : Color(.systemGray4)),
+                            lineWidth: isPopular && !isSelected ? 2 : 1
+                        )
+                )
+                .shadow(
+                    color: isSelected
+                        ? theme.accentPrimary.opacity(0.3)
+                        : Color.black.opacity(0.05),
+                    radius: isSelected ? 12 : 8,
+                    y: isSelected ? 6 : 2
+                )
+                
+                // Most popular badge
+                if isPopular {
+                    Text("MOST POPULAR")
+                        .font(theme.font(10, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(
+                            Capsule()
+                                .fill(theme.accentPrimary)
+                        )
+                        .offset(x: -12, y: -8)
+                }
             }
-            .background(isSelected ? theme.accentPrimary.opacity(0.1) : Color(.systemGray6))
-            .cornerRadius(12)
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(isSelected ? theme.accentPrimary : Color.clear, lineWidth: 2)
-            )
         }
         .disabled(isPurchasing)
+        .scaleEffect(isSelected ? 1.02 : 1.0)
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
     }
 }

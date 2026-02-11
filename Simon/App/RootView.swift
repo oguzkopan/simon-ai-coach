@@ -309,6 +309,11 @@ struct SignInPromptView: View {
     @State private var errorMessage: String?
     @State private var isLoading = false
     
+    // Customizable text
+    var iconName: String = "bookmark.fill"
+    var title: String = "Save your progress"
+    var message: String = "Create an account to keep your favorite coaches and session history synced across all your devices."
+    
     var body: some View {
         VStack(spacing: 24) {
             // Icon
@@ -317,7 +322,7 @@ struct SignInPromptView: View {
                     .fill(theme.accentTint)
                     .frame(width: 80, height: 80)
                 
-                Image(systemName: "bookmark.fill")
+                Image(systemName: iconName)
                     .font(.system(size: 36))
                     .foregroundColor(theme.accentPrimary)
             }
@@ -325,11 +330,11 @@ struct SignInPromptView: View {
             
             // Title and message
             VStack(spacing: 12) {
-                Text("Save your progress")
+                Text(title)
                     .font(theme.font(24, weight: .bold))
                     .foregroundColor(.primary)
                 
-                Text("Create an account to keep your favorite coaches and session history synced across all your devices.")
+                Text(message)
                     .font(theme.font(15))
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)

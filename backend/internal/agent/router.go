@@ -42,36 +42,30 @@ func (r *Router) Route(ctx context.Context, uid string, prompt string) (*RouteRe
 	// Step 2: Find existing coach or generate new one
 	var coachID *string
 	var coachName string
-	var blueprint map[string]interface{}
 
 	if intent.ExistingCoachID != nil {
 		// Use existing coach
 		coach, err := r.firestore.GetCoach(ctx, *intent.ExistingCoachID)
 		if err != nil {
 			// Fallback to generating new coach
-			coachName, blueprint = r.generateCoach(intent)
+			coachName, _ = r.generateCoach(intent)
 		} else {
 			coachID = &coach.ID
 			coachName = coach.Title
-			blueprint = coach.Blueprint
 		}
 	} else if intent.GenerateCoach {
 		// Generate new coach dynamically
-		coachName, blueprint = r.generateCoach(intent)
+		coachName, _ = r.generateCoach(intent)
 	} else {
 		// Fallback to general coach
 		coachName = "General Systems Coach"
-		blueprint = r.getDefaultBlueprint()
 	}
 
-	// Step 3: Generate first message/question
-	firstMessage, err := r.generateFirstMessage(ctx, prompt, coachName, blueprint)
-	if err != nil {
-		// Non-fatal, can be nil
-		firstMessage = nil
-	}
+	// Step 3: Skip first message generation - let the coach respond naturally
+	// This saves an API call and speeds up the flow
+	var firstMessage *string = nil
 
-	// Step 4: Generate session title
+	// Step 4: Generate session title (simple, no API call)
 	title := r.generateTitle(intent, coachName)
 
 	return &RouteResult{
@@ -93,31 +87,28 @@ type Intent struct {
 
 // classifyIntent uses Gemini to classify the user's intent
 func (r *Router) classifyIntent(ctx context.Context, prompt string) (*Intent, error) {
-	systemPrompt := `You are Simon's routing agent. Analyze the user's prompt and classify their intent.
-
-Return a JSON object with:
+	systemPrompt := `Classify user intent. Return JSON only:
 {
-  "category": "focus" | "planning" | "decision" | "creativity" | "health" | "confidence",
-  "urgency": "high" | "medium" | "low",
+  "category": "focus"|"planning"|"decision"|"creativity"|"health"|"confidence",
+  "urgency": "high"|"medium"|"low",
   "existing_coach_id": null,
   "generate_coach": true,
-  "tone": "calm_direct" | "warm_supportive" | "socratic"
+  "tone": "calm_direct"|"warm_supportive"|"socratic"
 }
 
 Categories:
-- focus: Stuck, need next step, clarify action
-- planning: Structure day/week, organize tasks
-- decision: Make a choice, weigh options
-- creativity: Generate ideas, brainstorm
-- health: Reset, recover, self-care
-- confidence: Motivation, encouragement
+- focus: Stuck, need next step
+- planning: Structure day/week
+- decision: Make choice
+- creativity: Generate ideas
+- health: Reset, recover
+- confidence: Motivation
 
-Be decisive. If unsure, default to "focus" with "calm_direct" tone.
-Return ONLY the JSON object, no other text.`
+Default: "focus" + "calm_direct". JSON only.`
 
-	userPrompt := fmt.Sprintf("User prompt: %s", prompt)
+	userPrompt := fmt.Sprintf("Prompt: %s", prompt)
 
-	response, err := r.gemini.GenerateContent(ctx, systemPrompt, userPrompt)
+	response, err := r.gemini.GenerateContentFast(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		return nil, fmt.Errorf("gemini generate content failed: %w", err)
 	}

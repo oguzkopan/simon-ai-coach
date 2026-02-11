@@ -66,6 +66,12 @@ struct ChatView: View {
     
     var body: some View {
         VStack(spacing: 0) {
+            // Audio playing indicator (shown when coach is speaking)
+            if viewModel.audioStreamPlayer.isPlaying {
+                AudioStatusBar()
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+            
             // Message limit banner for unsubscribed users
             if !purchases.isPro && viewModel.remainingMessages >= 0 {
                 HStack {
@@ -167,23 +173,69 @@ struct ChatView: View {
                             .padding(.top, 100)
                         } else if viewModel.messages.isEmpty && viewModel.hasCompletedInitialLoad {
                             // State 3: Successfully loaded but no messages yet (empty session)
-                            VStack(spacing: 16) {
-                                Image(systemName: "bubble.left.and.bubble.right")
-                                    .font(.system(size: 48))
-                                    .foregroundColor(.secondary.opacity(0.5))
-                                Text("Start a conversation")
-                                    .font(theme.font(17))
-                                    .foregroundColor(.secondary)
+                            
+                            // Show ONLY processing steps if coach selection is in progress
+                            if viewModel.isSelectingCoach && !viewModel.processingSteps.isEmpty {
+                                VStack(spacing: 0) {
+                                    Spacer()
+                                    
+                                    VStack(alignment: .leading, spacing: 12) {
+                                        ForEach(viewModel.processingSteps) { step in
+                                            HStack(spacing: 12) {
+                                                if step.isComplete {
+                                                    Image(systemName: "checkmark.circle.fill")
+                                                        .font(.system(size: 16))
+                                                        .foregroundColor(.green)
+                                                } else {
+                                                    ProgressView()
+                                                        .scaleEffect(0.8)
+                                                        .frame(width: 16, height: 16)
+                                                }
+                                                
+                                                Text(step.message)
+                                                    .font(theme.font(15))
+                                                    .italic()
+                                                    .foregroundColor(step.isComplete ? .secondary : theme.accentPrimary)
+                                            }
+                                            .transition(.opacity.combined(with: .move(edge: .top)))
+                                        }
+                                    }
+                                    .padding(.horizontal, 24)
+                                    .padding(.vertical, 16)
+                                    .background(Color(.systemGray6).opacity(0.5))
+                                    .cornerRadius(16)
+                                    .transition(.opacity.combined(with: .scale))
+                                    
+                                    Spacer()
+                                }
+                            } else {
+                                // Empty state (no processing, no messages)
+                                VStack(spacing: 16) {
+                                    Image(systemName: "bubble.left.and.bubble.right")
+                                        .font(.system(size: 48))
+                                        .foregroundColor(.secondary.opacity(0.5))
+                                    Text("Start a conversation")
+                                        .font(theme.font(17))
+                                        .foregroundColor(.secondary)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.top, 100)
                             }
-                            .frame(maxWidth: .infinity)
-                            .padding(.top, 100)
                         } else if !viewModel.messages.isEmpty {
                             // State 4: Messages loaded successfully
+                            
                             ForEach(viewModel.messages) { message in
                                 MessageBubble(message: message, onPin: { msg in
                                     viewModel.pinAsSystem(msg)
                                 })
                                 .id(message.id)
+                            }
+                            
+                            // Typing indicator (shown while coach is thinking)
+                            if viewModel.isCoachTyping {
+                                TypingIndicatorView()
+                                    .transition(.opacity.combined(with: .move(edge: .leading)))
+                                    .id("typing-indicator")
                             }
                             
                             // Display cards after messages
@@ -273,6 +325,22 @@ struct ChatView: View {
                     if let lastMessage = viewModel.messages.last {
                         withAnimation {
                             proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                        }
+                    }
+                }
+                .onChange(of: viewModel.isCoachTyping) {
+                    // Scroll to typing indicator when it appears
+                    if viewModel.isCoachTyping {
+                        withAnimation {
+                            proxy.scrollTo("typing-indicator", anchor: .bottom)
+                        }
+                    }
+                }
+                .onChange(of: viewModel.processingSteps.count) {
+                    // Scroll to show processing steps
+                    if !viewModel.processingSteps.isEmpty, let lastMessage = viewModel.messages.last {
+                        withAnimation {
+                            proxy.scrollTo(lastMessage.id, anchor: .top)
                         }
                     }
                 }
@@ -459,8 +527,20 @@ struct ChatView: View {
                 }
             }
         } // VStack
-        .navigationTitle(viewModel.coachName)
+        .navigationTitle(viewModel.selectedCoachName ?? viewModel.coachName)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: {
+                    viewModel.voiceOverEnabled.toggle()
+                }) {
+                    Image(systemName: viewModel.voiceOverEnabled ? "speaker.wave.3.fill" : "speaker.slash.fill")
+                        .foregroundColor(viewModel.voiceOverEnabled ? theme.accentPrimary : .gray)
+                        .font(.system(size: 18))
+                }
+                .disabled(viewModel.isStreaming)
+            }
+        }
         .toolbar(.hidden, for: .tabBar)
         .onAppear {
             // Auto-focus the text field when the view appears
@@ -541,6 +621,7 @@ struct ChatView: View {
             }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: showPurchaseResult)
+        .animation(.spring(response: 0.35, dampingFraction: 0.75), value: viewModel.audioStreamPlayer.isPlaying)
         .sheet(isPresented: $showImagePicker) {
             ImagePicker(image: $viewModel.selectedImage)
         }

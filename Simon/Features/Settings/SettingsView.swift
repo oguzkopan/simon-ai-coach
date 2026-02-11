@@ -27,14 +27,12 @@ struct SettingsView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 32) {
-                    // Show sign-in section if not authenticated
                     if !authManager.isAuthenticated {
                         signInSection
                     }
                     
                     previewSection
                     
-                    // Subscription section
                     subscriptionSection
                     
                     themeSection
@@ -117,7 +115,6 @@ struct SettingsView: View {
                         }
                     }
                     
-                    // Auto-dismiss success message after 3 seconds
                     if success {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                             withAnimation {
@@ -132,7 +129,6 @@ struct SettingsView: View {
             ManageSubscriptionView()
         }
         .overlay {
-            // Purchase result popup
             if showPurchaseResult {
                 ZStack {
                     Color.black.opacity(0.4)
@@ -161,9 +157,7 @@ struct SettingsView: View {
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: showPurchaseResult)
     }
-    
-    // MARK: - Sign In Section
-    
+        
     private var signInSection: some View {
                         VStack(spacing: 20) {
                             VStack(spacing: 12) {
@@ -184,7 +178,6 @@ struct SettingsView: View {
                             .padding(.top, 20)
                             
                             VStack(spacing: 12) {
-                                // Apple Sign In Button
                                 Button(action: {
                                     Task {
                                         do {
@@ -208,7 +201,6 @@ struct SettingsView: View {
                                 }
                                 .buttonStyle(.plain)
                                 
-                                // Google Sign In Button
                                 Button(action: {
                                     Task {
                                         do {
@@ -241,9 +233,7 @@ struct SettingsView: View {
                                 .padding(.vertical, 12)
                         }
     }
-    
-    // MARK: - Preview Section
-    
+        
     private var previewSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("PREVIEW")
@@ -273,9 +263,7 @@ struct SettingsView: View {
             .shadow(color: Color.black.opacity(0.05), radius: 10, x: 0, y: 4)
         }
     }
-    
-    // MARK: - Subscription Section
-    
+        
     private var subscriptionSection: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("SUBSCRIPTION")
@@ -318,7 +306,6 @@ struct SettingsView: View {
                         
                         Divider()
                         
-                        // Benefits list
                         VStack(alignment: .leading, spacing: 12) {
                             BenefitRow(icon: "infinity", text: "Unlimited messages", isActive: true)
                             BenefitRow(icon: "square.and.arrow.up", text: "Publish & share coaches", isActive: true)
@@ -329,7 +316,6 @@ struct SettingsView: View {
                         
                         Divider()
                         
-                        // Manage subscription button
                         Button(action: {
                             showManageSubscription = true
                         }) {
@@ -347,7 +333,6 @@ struct SettingsView: View {
                         .buttonStyle(.plain)
                     }
                 } else {
-                    // Free user - show upgrade prompt
                     VStack(spacing: 16) {
                         HStack(spacing: 12) {
                             ZStack {
@@ -376,7 +361,6 @@ struct SettingsView: View {
                         
                         Divider()
                         
-                        // Benefits list (grayed out)
                         VStack(alignment: .leading, spacing: 12) {
                             BenefitRow(icon: "infinity", text: "Unlimited messages", isActive: false)
                             BenefitRow(icon: "square.and.arrow.up", text: "Publish & share coaches", isActive: false)
@@ -387,7 +371,6 @@ struct SettingsView: View {
                         
                         Divider()
                         
-                        // Upgrade button
                         Button(action: {
                             showPaywall = true
                         }) {
@@ -413,9 +396,7 @@ struct SettingsView: View {
             .shadow(color: Color.black.opacity(0.05), radius: 10, x: 0, y: 4)
         }
     }
-    
-    // MARK: - Theme Section
-    
+        
     private var themeSection: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("THEME")
@@ -436,9 +417,7 @@ struct SettingsView: View {
             }
         }
     }
-    
-    // MARK: - Accent Color Section
-    
+        
     private var accentColorSection: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("ACCENT COLOR")
@@ -471,9 +450,7 @@ struct SettingsView: View {
             .padding(.vertical, 8)
         }
     }
-    
-    // MARK: - Typography Section
-    
+        
     private var typographySection: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("FONT STYLE")
@@ -494,9 +471,7 @@ struct SettingsView: View {
             }
         }
     }
-    
-    // MARK: - Text Size Section
-    
+        
     private var textSizeSection: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("TEXT SIZE")
@@ -591,9 +566,7 @@ struct SettingsView: View {
             .shadow(color: Color.black.opacity(0.05), radius: 10, x: 0, y: 4)
         }
     }
-    
-    // MARK: - Account Section
-    
+        
     private var accountSection: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("ACCOUNT")
@@ -638,9 +611,7 @@ struct SettingsView: View {
             }
         }
     }
-    
-    // MARK: - Features Section
-    
+        
     private var featuresSection: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("FEATURES")
@@ -670,9 +641,7 @@ struct SettingsView: View {
             .buttonStyle(.plain)
         }
     }
-    
-    // MARK: - About Section
-    
+        
     private var aboutSection: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("ABOUT")
@@ -726,8 +695,6 @@ struct SettingsView: View {
         }
     }
 }
-
-// MARK: - Supporting Components
 
 struct ThemeButton: View {
     let title: String
@@ -878,8 +845,6 @@ struct BenefitRow: View {
         }
     }
 }
-
-// MARK: - Manage Subscription View
 
 struct ManageSubscriptionView: View {
     @Environment(\.dismiss) private var dismiss

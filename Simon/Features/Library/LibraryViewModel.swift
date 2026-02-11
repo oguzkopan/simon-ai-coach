@@ -18,6 +18,7 @@ final class LibraryViewModel: ObservableObject {
     @Published var isLoadingProgress: Bool = false
     
     private let apiClient: SimonAPI
+    private let authManager = AuthenticationManager.shared
     private var loadTask: Task<Void, Never>?
     private var hasLoadedData = false // Track if initial load is complete
     private var hasLoadedProgress = false
@@ -32,6 +33,12 @@ final class LibraryViewModel: ObservableObject {
     }
     
     func loadData() async {
+        // Check authentication first
+        guard authManager.isAuthenticated else {
+            print("⚠️ No authenticated user for library data")
+            return
+        }
+        
         // Skip if already loaded
         guard !hasLoadedData else {
             print("📚 Library data already loaded, skipping...")
@@ -112,6 +119,11 @@ final class LibraryViewModel: ObservableObject {
     }
     
     private func loadProgressDocuments() async {
+        guard authManager.isAuthenticated else {
+            print("⚠️ No authenticated user for progress documents")
+            return
+        }
+        
         guard !hasLoadedProgress else {
             print("📊 Progress data already loaded, skipping...")
             return

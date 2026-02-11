@@ -194,10 +194,7 @@ func (c *Client) NewStreamingSession(voiceID string, settings *VoiceSettings) (*
 	url := fmt.Sprintf("%s/text-to-speech/%s/stream-input?model_id=%s", 
 		WebSocketURL, voiceID, LatestTurboModel)
 
-	header := http.Header{}
-	header.Add("xi-api-key", c.apiKey)
-
-	conn, _, err := websocket.DefaultDialer.Dial(url, header)
+	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to WebSocket: %w", err)
 	}
@@ -212,15 +209,16 @@ func (c *Client) NewStreamingSession(voiceID string, settings *VoiceSettings) (*
 		done:          make(chan struct{}),
 	}
 
-	// Send initial configuration
+	// Send initial configuration with API key
 	initMsg := map[string]interface{}{
-		"text": " ", // Start with empty space
-		"voice_settings": map[string]float64{
+		"text":       " ", // Start with empty space to keep connection alive
+		"xi_api_key": c.apiKey,
+		"voice_settings": map[string]interface{}{
 			"stability":        settings.Stability,
 			"similarity_boost": settings.SimilarityBoost,
 		},
 		"generation_config": map[string]interface{}{
-			"chunk_length_schedule": []int{120, 160, 250, 290},
+			"chunk_length_schedule": []int{50, 120, 160, 250}, // Lower first threshold for faster response
 		},
 	}
 
@@ -237,16 +235,17 @@ func (c *Client) NewStreamingSession(voiceID string, settings *VoiceSettings) (*
 
 // SendText sends text to be converted to speech
 func (s *StreamingSession) SendText(text string) error {
-	msg := map[string]string{
-		"text": text + " ",
+	msg := map[string]interface{}{
+		"text": text,
 	}
 	return s.conn.WriteJSON(msg)
 }
 
-// SendEOS sends end-of-stream signal
+// SendEOS sends end-of-stream signal with flush
 func (s *StreamingSession) SendEOS() error {
-	msg := map[string]string{
-		"text": "",
+	msg := map[string]interface{}{
+		"text":  "",
+		"flush": true, // Flush remaining audio
 	}
 	return s.conn.WriteJSON(msg)
 }
@@ -270,10 +269,9 @@ func (s *StreamingSession) readLoop() {
 				return
 			}
 
-			// Check for audio data
-			if audioBase64, ok := response["audio"].(string); ok {
-				// Audio is already base64 encoded, decode it
-				// Note: In production, you might want to decode base64 here
+			// Check for audio data (base64 encoded)
+			if audioBase64, ok := response["audio"].(string); ok && audioBase64 != "" {
+				// Send the base64 string as-is (client will decode it)
 				s.AudioChan <- []byte(audioBase64)
 			}
 

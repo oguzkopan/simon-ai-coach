@@ -42,6 +42,26 @@ final class ChatViewModel: ObservableObject {
     @Published var isVoiceMode = false
     @Published var voiceRecordingManager = VoiceRecordingManager()
     
+    // Voice-over playback
+    @Published var voiceOverEnabled = false
+    @Published var audioStreamPlayer = AudioStreamPlayer()
+    
+    // Coach selection state (for moments)
+    @Published var isSelectingCoach = false
+    @Published var coachSelectionMessage = "Finding the best coach for you..."
+    @Published var processingSteps: [ProcessingStep] = []
+    @Published var selectedCoachName: String? // Updated when coach is selected
+    
+    struct ProcessingStep: Identifiable, Equatable {
+        let id = UUID()
+        let message: String
+        let isComplete: Bool
+        let timestamp: Date
+    }
+    
+    // Typing indicator state
+    @Published var isCoachTyping = false
+    
     // New SSE event handling
     @Published var nextActionsCard: NextActionsCardPayload?
     @Published var planCard: PlanCardPayload?
@@ -100,6 +120,10 @@ final class ChatViewModel: ObservableObject {
         self.initialPrompt = initialPrompt
         self.isNewSession = isNewSession
         self.purchasesService = purchasesService
+        
+        // Initialize selectedCoachName with the initial coach name
+        // This will be updated when coach selection completes
+        self.selectedCoachName = coachName == "AI Coach" ? nil : coachName
     }
     
     // Load message count for unsubscribed users
@@ -380,22 +404,27 @@ final class ChatViewModel: ObservableObject {
         var assistantText = "" 
         let assistantID = UUID().uuidString
         
-        // Add placeholder assistant message
+        // Show typing indicator instead of empty message
         await MainActor.run {
-            let placeholderMessage = Message(
-                id: assistantID,
-                role: "assistant",
-                contentText: "",
-                attachments: nil,
-                createdAt: Date()
-            )
-            messages.append(placeholderMessage)
+            isCoachTyping = true
+            
+            // Start audio stream if voice-over is enabled
+            if voiceOverEnabled {
+                audioStreamPlayer.startSession()
+            }
         }
 
         
         do {
-            print("🚀 Starting chat stream for session: \(sessionID)")
-            let stream = apiClient.streamChat(sessionID: sessionID, userText: userText, attachments: attachments)
+            print("🚀 Starting chat stream for session: \(sessionID), voice-over: \(voiceOverEnabled)")
+            let stream = apiClient.streamChat(
+                sessionID: sessionID,
+                userText: userText,
+                attachments: attachments,
+                voiceOverEnabled: voiceOverEnabled
+            )
+            
+            var hasReceivedFirstDelta = false
             
             for try await event in stream {
                     if Task.isCancelled {
@@ -408,20 +437,108 @@ final class ChatViewModel: ObservableObject {
                     switch event {
                     case .streamOpen(let payload):
                         print("✅ Stream opened: \(payload.sessionId)")
+                        // Check if coach selection is in progress
+                        if payload.coachSelecting == true {
+                            isSelectingCoach = true
+                        }
+                        
+                    case .processingStep(let payload):
+                        print("🔄 Processing step: \(payload.step) - \(payload.message)")
+                        await MainActor.run {
+                            // Mark previous steps as complete
+                            for i in 0..<processingSteps.count {
+                                processingSteps[i] = ProcessingStep(
+                                    message: processingSteps[i].message,
+                                    isComplete: true,
+                                    timestamp: processingSteps[i].timestamp
+                                )
+                            }
+                            
+                            // Add new step
+                            processingSteps.append(ProcessingStep(
+                                message: payload.message,
+                                isComplete: false,
+                                timestamp: Date()
+                            ))
+                        }
+                        
+                    case .coachSelected(let payload):
+                        print("✅ Coach selected: \(payload.coachName)")
+                        await MainActor.run {
+                            // Update the coach name
+                            selectedCoachName = payload.coachName
+                            
+                            // Mark all steps as complete
+                            for i in 0..<processingSteps.count {
+                                processingSteps[i] = ProcessingStep(
+                                    message: processingSteps[i].message,
+                                    isComplete: true,
+                                    timestamp: processingSteps[i].timestamp
+                                )
+                            }
+                            
+                            // Add final step
+                            processingSteps.append(ProcessingStep(
+                                message: "Ready! \(payload.coachName) is here to help",
+                                isComplete: true,
+                                timestamp: Date()
+                            ))
+                            
+                            // Keep processing steps visible until first message arrives
+                            // They will be cleared when messageDelta is received
+                        }
                         
                     case .messageDelta(let payload):
                         print("📝 Message delta: \(payload.delta)")
-                        // Update UI immediately (direct pass, no buffer)
-                        await MainActor.run {
-                            assistantText += payload.delta
-                            if let index = messages.firstIndex(where: { $0.id == assistantID }) {
-                                messages[index] = Message(
+                        
+                        // On first delta, hide typing indicator and add message
+                        if !hasReceivedFirstDelta {
+                            hasReceivedFirstDelta = true
+                            await MainActor.run {
+                                isCoachTyping = false
+                                
+                                // Clear processing steps when first message arrives
+                                if isSelectingCoach {
+                                    isSelectingCoach = false
+                                    processingSteps.removeAll()
+                                }
+                                
+                                // Add the message bubble now
+                                let placeholderMessage = Message(
                                     id: assistantID,
                                     role: "assistant",
-                                    contentText: assistantText,
+                                    contentText: payload.delta,
                                     attachments: nil,
                                     createdAt: Date()
                                 )
+                                messages.append(placeholderMessage)
+                                assistantText = payload.delta
+                            }
+                        } else {
+                            // Update existing message
+                            await MainActor.run {
+                                assistantText += payload.delta
+                                if let index = messages.firstIndex(where: { $0.id == assistantID }) {
+                                    messages[index] = Message(
+                                        id: assistantID,
+                                        role: "assistant",
+                                        contentText: assistantText,
+                                        attachments: nil,
+                                        createdAt: Date()
+                                    )
+                                }
+                            }
+                        }
+                    
+                    case .audioChunk(let payload):
+                        print("🎵 Audio chunk received: \(payload.audio.prefix(50))...")
+                        // Enqueue audio for playback
+                        await MainActor.run {
+                            if !payload.isFinal {
+                                audioStreamPlayer.enqueueAudioChunk(payload.audio)
+                            } else {
+                                // Final audio chunk - end session
+                                audioStreamPlayer.endSession()
                             }
                         }
                         
@@ -509,6 +626,7 @@ final class ChatViewModel: ObservableObject {
                 // Final cleanup
                 await MainActor.run {
                     isStreaming = false
+                    isCoachTyping = false // Hide typing indicator if still showing
                 }
             } catch {
             print("❌ Stream error: \(error)")
@@ -517,6 +635,7 @@ final class ChatViewModel: ObservableObject {
                 // Remove placeholder message on error
                 messages.removeAll { $0.id == assistantID }
                 isStreaming = false
+                isCoachTyping = false // Hide typing indicator
             }
         }
     }
@@ -524,6 +643,7 @@ final class ChatViewModel: ObservableObject {
     func stopStreaming() {
         streamingTask?.cancel()
         isStreaming = false
+        isCoachTyping = false // Hide typing indicator
     }
     
     // MARK: - Pin as System

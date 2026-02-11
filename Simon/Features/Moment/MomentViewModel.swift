@@ -340,15 +340,14 @@ final class MomentViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
         errorMessage = nil
         
         do {
-            // Call backend to start moment
+            // Call backend to create session immediately
             let response = try await apiClient.startMoment(prompt: prompt)
             
-            // Navigate to chat with created session
-            // Note: The backend has already processed the user's prompt and created
-            // the session with messages, so we don't need to pass initialPrompt
+            // Navigate to chat immediately
+            // The chat will show "Finding the best coach for you..." while streaming
             createdSessionId = response.sessionId
             createdCoachName = response.coachName
-            createdInitialPrompt = nil // Don't auto-send - messages already exist
+            createdInitialPrompt = prompt // Pass the prompt to trigger streaming
             navigateToChat = true
             
             // Reset form
@@ -375,7 +374,7 @@ final class MomentViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
             coachName: coachName,
             apiClient: apiClient,
             initialPrompt: initialPrompt,
-            isNewSession: false, // Session already has messages from backend
+            isNewSession: true, // This is a new session from a moment
             purchasesService: purchases
         )
     }

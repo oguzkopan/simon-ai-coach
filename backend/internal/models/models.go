@@ -88,11 +88,12 @@ type CreateSessionRequest struct {
 
 // SendMessageRequest represents the request to send a message
 type SendMessageRequest struct {
-	UserText      string       `json:"user_text"`
-	AudioData     string       `json:"audio_data,omitempty"`      // Base64 encoded audio for voice messages
-	Attachments   []Attachment `json:"attachments,omitempty"`
-	UserTimezone  string       `json:"user_timezone,omitempty"`   // e.g., "America/New_York"
-	UserLocalTime string       `json:"user_local_time,omitempty"` // ISO 8601 in user's timezone
+	UserText         string       `json:"user_text"`
+	AudioData        string       `json:"audio_data,omitempty"`         // Base64 encoded audio for voice messages
+	Attachments      []Attachment `json:"attachments,omitempty"`
+	UserTimezone     string       `json:"user_timezone,omitempty"`      // e.g., "America/New_York"
+	UserLocalTime    string       `json:"user_local_time,omitempty"`    // ISO 8601 in user's timezone
+	VoiceOverEnabled bool         `json:"voice_over_enabled,omitempty"` // Enable real-time voice-over streaming
 }
 
 // Now returns the current time (helper for consistency)

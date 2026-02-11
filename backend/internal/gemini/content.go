@@ -52,6 +52,52 @@ func (c *Client) GenerateContent(ctx context.Context, systemPrompt, userPrompt s
 	return result.String(), nil
 }
 
+// GenerateContentFast generates content with lower temperature for faster, more deterministic responses
+// Useful for classification and routing tasks
+func (c *Client) GenerateContentFast(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	// Combine system and user prompts
+	fullPrompt := systemPrompt + "\n\n" + userPrompt
+
+	contents := []*genai.Content{
+		{
+			Role: "user",
+			Parts: []*genai.Part{
+				{Text: fullPrompt},
+			},
+		},
+	}
+
+	config := &genai.GenerateContentConfig{
+		Temperature:      floatPtr(0.1), // Lower temperature for faster, more deterministic responses
+		ResponseMIMEType: "text/plain",
+		MaxOutputTokens:  512, // Limit output for classification tasks
+	}
+
+	resp, err := c.Raw.Models.GenerateContent(ctx, c.Model, contents, config)
+	if err != nil {
+		return "", fmt.Errorf("gemini generate content failed: %w", err)
+	}
+
+	// Extract text from response
+	if len(resp.Candidates) == 0 {
+		return "", fmt.Errorf("no candidates in response")
+	}
+
+	candidate := resp.Candidates[0]
+	if candidate.Content == nil || len(candidate.Content.Parts) == 0 {
+		return "", fmt.Errorf("no content in candidate")
+	}
+
+	var result strings.Builder
+	for _, part := range candidate.Content.Parts {
+		if part.Text != "" {
+			result.WriteString(part.Text)
+		}
+	}
+
+	return result.String(), nil
+}
+
 func floatPtr(f float32) *float32 {
 	return &f
 }

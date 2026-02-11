@@ -2,8 +2,10 @@ import SwiftUI
 
 struct HomeView: View {
     @StateObject private var viewModel: HomeViewModel
+    @StateObject private var authManager = AuthenticationManager.shared
     @EnvironmentObject private var theme: ThemeStore
     @State private var navigateToCoachBuilder = false
+    @State private var showSignInPrompt = false
     @Binding var showSettings: Bool
     let onCoachTap: ((Coach) -> Void)?
     
@@ -106,7 +108,13 @@ struct HomeView: View {
                 }
                 
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { navigateToCoachBuilder = true }) {
+                    Button(action: {
+                        if authManager.isAuthenticated {
+                            navigateToCoachBuilder = true
+                        } else {
+                            showSignInPrompt = true
+                        }
+                    }) {
                         Image(systemName: "plus.circle.fill")
                             .font(.system(size: 28))
                             .foregroundColor(theme.accentPrimary)
@@ -123,6 +131,16 @@ struct HomeView: View {
                         }
                     )
                 )
+            }
+            .sheet(isPresented: $showSignInPrompt) {
+                SignInPromptView(
+                    showSignIn: .constant(false),
+                    iconName: "person.badge.plus.fill",
+                    title: "Create & Share Coaches",
+                    message: "Sign in to create your own AI coaches and share them with the community. Your coaches will be saved and accessible across all your devices."
+                )
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
             }
             .task {
                 if viewModel.coaches.isEmpty && !viewModel.isLoading {

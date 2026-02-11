@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/genai"
 
+	"simon-backend/internal/agent"
 	"simon-backend/internal/config"
 	fsClient "simon-backend/internal/firestore"
 	geminiClient "simon-backend/internal/gemini"
@@ -179,10 +180,113 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 			return
 		}
 
-		// Get coach ID
+		// Get coach ID and voice config
 		coachID := ""
+		var coachVoiceConfig *models.VoiceConfig
+		var selectedCoachName string
+		
 		if session.CoachID != nil {
 			coachID = *session.CoachID
+			selectedCoachName = session.CoachName
+
+			// Fetch coach to get voice configuration if voice-over is enabled
+			if req.VoiceOverEnabled {
+				log.Printf("🎙️ Voice-over requested for coach: %s", coachID)
+				coachDoc, err := fs.DB.Collection("coaches").Doc(coachID).Get(ctx)
+				if err != nil {
+					log.Printf("⚠️ Failed to fetch coach for voice config: %v", err)
+				} else {
+					var coach models.Coach
+					if err := coachDoc.DataTo(&coach); err != nil {
+						log.Printf("⚠️ Failed to parse coach data: %v", err)
+					} else {
+						log.Printf("🎙️ Coach loaded: has_spec=%v", coach.CoachSpec != nil)
+						if coach.CoachSpec != nil && coach.CoachSpec.Voice != nil {
+							log.Printf("🎙️ CoachSpec.Voice: %+v", coach.CoachSpec.Voice)
+							coachVoiceConfig = coach.CoachSpec.Voice
+							log.Printf("🎙️ Using coach-specific voice: ID=%s, Enabled=%v", coachVoiceConfig.VoiceID, coachVoiceConfig.Enabled)
+						}
+					}
+				}
+				
+				// If no voice config found, use default
+				if coachVoiceConfig == nil {
+					log.Printf("🎙️ No coach-specific voice config, using default voice")
+					coachVoiceConfig = &models.VoiceConfig{
+						Enabled:    true,
+						VoiceID:    "21m00Tcm4TlvDq8ikWAM", // Rachel - default ElevenLabs voice
+						VoiceName:  "Rachel",
+						Stability:  0.5,
+						Similarity: 0.75,
+						Style:      0.0,
+						PresetName: "Balanced",
+					}
+				}
+			}
+		} else {
+			// No coach assigned yet - perform coach selection now
+			log.Printf("🔍 Performing coach selection for session: %s", sessionID)
+			
+			// Send stream.open with coach_selecting flag
+			sse.Event(c.Writer, "stream.open", map[string]interface{}{
+				"session_id":      sessionID,
+				"server_time_iso": time.Now().Format(time.RFC3339),
+				"coach_selecting": true,
+			})
+			flusher.Flush()
+			
+			// Send processing step: analyzing intent
+			sse.Event(c.Writer, "processing.step", map[string]interface{}{
+				"step":    "analyzing",
+				"message": "Understanding your needs...",
+			})
+			flusher.Flush()
+			
+			// Use router agent to select coach
+			routerAgent := agent.NewRouter(gm, fs)
+			routeResult, err := routerAgent.Route(ctx, uid, req.UserText)
+			if err != nil {
+				log.Printf("❌ Coach selection failed: %v", err)
+				sse.Event(c.Writer, "error", map[string]interface{}{
+					"code":    "COACH_SELECTION_ERROR",
+					"message": "Failed to select appropriate coach",
+				})
+				flusher.Flush()
+				return
+			}
+			
+			// Send processing step: coach selected
+			sse.Event(c.Writer, "processing.step", map[string]interface{}{
+				"step":    "matching",
+				"message": "Matching you with the right coach...",
+			})
+			flusher.Flush()
+			
+			// Update session with selected coach
+			if routeResult.CoachID != nil {
+				coachID = *routeResult.CoachID
+			}
+			selectedCoachName = routeResult.CoachName
+			
+			// Update session in Firestore
+			_, err = fs.DB.Collection("sessions").Doc(sessionID).Update(ctx, []firestore.Update{
+				{Path: "coach_id", Value: routeResult.CoachID},
+				{Path: "coach_name", Value: routeResult.CoachName},
+				{Path: "title", Value: routeResult.Title},
+				{Path: "updated_at", Value: time.Now()},
+			})
+			if err != nil {
+				log.Printf("⚠️ Failed to update session with coach: %v", err)
+			}
+			
+			// Send coach.selected event
+			sse.Event(c.Writer, "coach.selected", map[string]interface{}{
+				"coach_id":   coachID,
+				"coach_name": selectedCoachName,
+			})
+			flusher.Flush()
+			
+			log.Printf("✅ Coach selected: %s (%s)", selectedCoachName, coachID)
 		}
 
 		// Save user message first
@@ -277,6 +381,21 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 			})
 			flusher.Flush()
 			return
+		}
+
+		// Check if voice-over streaming is enabled
+		if req.VoiceOverEnabled && coachVoiceConfig != nil {
+			log.Printf("🎙️ Starting voice-over streaming with voice: %s (enabled=%v)", 
+				coachVoiceConfig.VoiceID, coachVoiceConfig.Enabled)
+			voiceOrchestrator := NewVoiceStreamOrchestrator(cfg)
+			if err := voiceOrchestrator.StreamWithVoice(c, fs, output, coachVoiceConfig, flusher.Flush); err != nil {
+				log.Printf("❌ Voice streaming error: %v", err)
+				// Fall back to regular streaming on error
+			} else {
+				// Voice streaming completed successfully
+				log.Printf("✅ Voice-over streaming completed successfully")
+				return
+			}
 		}
 
 		// Keep-alive ticker (every 15 seconds)

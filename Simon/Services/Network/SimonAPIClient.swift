@@ -34,7 +34,7 @@ protocol SimonAPI {
     func getSavedCoaches() async throws -> [Coach]
     func createSession(coachID: String?) async throws -> Session
     func getSession(id: String) async throws -> SessionDetail
-    func streamChat(sessionID: String, userText: String, attachments: [Attachment]?) -> AsyncThrowingStream<SSEEvent, Error>
+    func streamChat(sessionID: String, userText: String, attachments: [Attachment]?, voiceOverEnabled: Bool) -> AsyncThrowingStream<SSEEvent, Error>
     func listSessions(limit: Int?) async throws -> [Session]
     func listSystems() async throws -> [System]
     func createSystem(system: System) async throws -> System
@@ -455,7 +455,7 @@ final class SimonAPIClient: SimonAPI {
     
     // MARK: - Chat Streaming
     
-    func streamChat(sessionID: String, userText: String, attachments: [Attachment]? = nil) -> AsyncThrowingStream<SSEEvent, Error> {
+    func streamChat(sessionID: String, userText: String, attachments: [Attachment]? = nil, voiceOverEnabled: Bool = false) -> AsyncThrowingStream<SSEEvent, Error> {
         let url = baseURL.appendingPathComponent("/v1/sessions/\(sessionID)/stream")
         
         // Get user's timezone and local time
@@ -468,7 +468,8 @@ final class SimonAPIClient: SimonAPI {
             userText: userText,
             attachments: attachments,
             userTimezone: timezone,
-            userLocalTime: localTime
+            userLocalTime: localTime,
+            voiceOverEnabled: voiceOverEnabled
         )
         let sseManager = SSEStreamManager()
         return sseManager.connect(url: url, request: request)
