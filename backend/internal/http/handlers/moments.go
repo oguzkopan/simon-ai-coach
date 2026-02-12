@@ -15,7 +15,8 @@ import (
 )
 
 type startMomentRequest struct {
-	Prompt string `json:"prompt" binding:"required"`
+	Prompt      string                `json:"prompt"` // Optional - empty for voice-only moments
+	Attachments []models.Attachment `json:"attachments,omitempty"`
 }
 
 type startMomentResponse struct {
@@ -77,17 +78,21 @@ func StartMoment(fs *firestore.Client, gm *gemini.Client, cfg config.Config) gin
 			return
 		}
 
-		// Save user's initial message
-		userMessage := models.Message{
-			Role:        "user",
-			ContentText: req.Prompt,
-			CreatedAt:   models.Now(),
-		}
+		// Save user's initial message ONLY if prompt is not empty
+		// For voice-only moments, the message will be saved during streaming
+		if req.Prompt != "" {
+			userMessage := models.Message{
+				Role:        "user",
+				ContentText: req.Prompt,
+				Attachments: req.Attachments, // Include attachments
+				CreatedAt:   models.Now(),
+			}
 
-		if err := fs.AddMessage(ctx, sessionID, userMessage); err != nil {
-			c.Error(fmt.Errorf("failed to save message: %w", err))
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to save message: %v", err)})
-			return
+			if err := fs.AddMessage(ctx, sessionID, userMessage); err != nil {
+				c.Error(fmt.Errorf("failed to save message: %w", err))
+				c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to save message: %v", err)})
+				return
+			}
 		}
 
 		// Increment moment count if not Pro

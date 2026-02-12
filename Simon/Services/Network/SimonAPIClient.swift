@@ -40,7 +40,7 @@ protocol SimonAPI {
     func createSystem(system: System) async throws -> System
     func getSystem(id: String) async throws -> System
     func deleteSystem(id: String) async throws
-    func startMoment(prompt: String) async throws -> MomentStartResponse
+    func startMoment(prompt: String, attachments: [Attachment]?) async throws -> MomentStartResponse
     func getContext() async throws -> UserContextData
     func updateContext(context: UserContextData) async throws
     func updateContextPreference(includeContext: Bool) async throws
@@ -561,13 +561,30 @@ final class SimonAPIClient: SimonAPI {
     
     // MARK: - Moments
     
-    func startMoment(prompt: String) async throws -> MomentStartResponse {
+    func startMoment(prompt: String, attachments: [Attachment]? = nil) async throws -> MomentStartResponse {
         var request = URLRequest(url: baseURL.appendingPathComponent("/v1/moments/start"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         try await addAuthHeader(to: &request)
         
-        let body = ["prompt": prompt]
+        var body: [String: Any] = ["prompt": prompt]
+        
+        // Add attachments if present
+        if let attachments = attachments {
+            let attachmentDicts = attachments.map { att -> [String: Any] in
+                var dict: [String: Any] = [
+                    "type": att.type,
+                    "storage_path": att.storagePath,
+                    "download_url": att.downloadURL
+                ]
+                if let mimeType = att.mimeType {
+                    dict["mime_type"] = mimeType
+                }
+                return dict
+            }
+            body["attachments"] = attachmentDicts
+        }
+        
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         
         let (data, response) = try await session.data(for: request)

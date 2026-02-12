@@ -443,7 +443,12 @@ struct ChatView: View {
                     HStack(alignment: .bottom, spacing: 10) {
                         // Voice Recording Button (left side)
                         Button(action: {
-                            viewModel.startVoiceRecording()
+                            // Check subscription status before allowing voice recording
+                            if !purchases.isPro && viewModel.hasReachedMessageLimit {
+                                showPaywall = true
+                            } else {
+                                viewModel.startVoiceRecording()
+                            }
                         }) {
                             Image(systemName: "mic.fill")
                                 .font(.system(size: 20, weight: .semibold))
@@ -490,7 +495,8 @@ struct ChatView: View {
                             if viewModel.isStreaming {
                                 viewModel.stopStreaming()
                             } else {
-                                if viewModel.hasReachedMessageLimit {
+                                // Check subscription status directly (not just cached limit)
+                                if !purchases.isPro && viewModel.hasReachedMessageLimit {
                                     showPaywall = true
                                 } else {
                                     viewModel.send()
@@ -650,25 +656,7 @@ struct MessageBubble: View {
     
     // Check if message has audio attachment
     private var audioAttachment: Attachment? {
-        let attachment = message.attachments?.first(where: { $0.type == "audio" })
-        
-        // Debug logging for voice messages
-        if message.contentText.contains("🎤") || message.contentText == "Voice message" || attachment != nil {
-            print("🔍 Voice message check: \(message.id)")
-            print("🔍   Text: '\(message.contentText)'")
-            print("🔍   Attachments: \(message.attachments?.count ?? 0)")
-            if let attachments = message.attachments {
-                for (index, att) in attachments.enumerated() {
-                    print("🔍   Attachment[\(index)]: type=\(att.type), url=\(att.downloadURL)")
-                }
-            }
-            print("🔍   Audio found: \(attachment != nil)")
-            if let audio = attachment {
-                print("🔍   Audio URL: \(audio.downloadURL)")
-            }
-        }
-        
-        return attachment
+        message.attachments?.first(where: { $0.type == "audio" })
     }
     
     // Check if this is a voice message (has audio or voice indicator)

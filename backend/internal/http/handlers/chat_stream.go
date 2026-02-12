@@ -313,6 +313,35 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 			flusher.Flush()
 			
 			log.Printf("✅ Coach selected: %s (%s)", selectedCoachName, coachID)
+			
+			// Load voice configuration for the selected coach
+			if req.VoiceOverEnabled && coachID != "" {
+				log.Printf("🎙️ Loading voice config for selected coach: %s", coachID)
+				coachDoc, err := fs.DB.Collection("coaches").Doc(coachID).Get(ctx)
+				if err != nil {
+					log.Printf("⚠️ Failed to load coach for voice config: %v", err)
+				} else {
+					var coach models.Coach
+					if err := coachDoc.DataTo(&coach); err != nil {
+						log.Printf("⚠️ Failed to parse coach data: %v", err)
+					} else if coach.CoachSpec != nil && coach.CoachSpec.Voice != nil {
+						coachVoiceConfig = coach.CoachSpec.Voice
+						log.Printf("✅ Voice config loaded for selected coach: ID=%s, Enabled=%v", 
+							coachVoiceConfig.VoiceID, coachVoiceConfig.Enabled)
+					} else {
+						log.Printf("⚠️ Selected coach has no voice config, using default")
+						// Use default voice config
+						coachVoiceConfig = &models.VoiceConfig{
+							VoiceID:    "21m00Tcm4TlvDq8ikWAM", // Default ElevenLabs voice
+							Enabled:    true,
+							Stability:  0.5,
+							Similarity: 0.75,
+							Style:      0.0,
+							PresetName: "Balanced",
+						}
+					}
+				}
+			}
 		}
 
 		// Save user message first

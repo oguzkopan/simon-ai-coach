@@ -286,6 +286,27 @@ extension Plan {
     }
 }
 
+// MARK: - Manual Initializer
+
+extension Plan {
+    // Manual initializer for creating Plan instances (available in all build configurations)
+    init(id: String, uid: String, coachId: String?, title: String, objective: String, 
+         horizon: PlanHorizon, milestones: [Milestone], nextActions: [NextAction], 
+         status: PlanStatus, createdAt: Date, updatedAt: Date) {
+        self.id = id
+        self.uid = uid
+        self.coachId = coachId
+        self.title = title
+        self.objective = objective
+        self.horizon = horizon
+        self.milestones = milestones
+        self.nextActions = nextActions
+        self.status = status
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
 // MARK: - Sample Data
 
 #if DEBUG
@@ -347,23 +368,6 @@ extension Plan {
             updatedAt: Date()
         )
         return plan
-    }
-    
-    // Manual initializer for creating Plan instances
-    init(id: String, uid: String, coachId: String?, title: String, objective: String, 
-         horizon: PlanHorizon, milestones: [Milestone], nextActions: [NextAction], 
-         status: PlanStatus, createdAt: Date, updatedAt: Date) {
-        self.id = id
-        self.uid = uid
-        self.coachId = coachId
-        self.title = title
-        self.objective = objective
-        self.horizon = horizon
-        self.milestones = milestones
-        self.nextActions = nextActions
-        self.status = status
-        self.createdAt = createdAt
-        self.updatedAt = updatedAt
     }
 }
 #endif

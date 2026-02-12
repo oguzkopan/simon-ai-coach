@@ -12,6 +12,9 @@ struct MomentView: View {
     @StateObject private var vm: MomentViewModel
     @EnvironmentObject private var theme: ThemeStore
     @FocusState private var isTextFieldFocused: Bool
+    @State private var showAttachmentOptions = false
+    @State private var showImagePicker = false
+    @State private var showCamera = false
     
     init(vm: MomentViewModel) {
         _vm = StateObject(wrappedValue: vm)
@@ -81,17 +84,30 @@ struct MomentView: View {
                 }
             )
         }
+        .sheet(isPresented: $showImagePicker) {
+            ImagePicker(image: $vm.selectedImage)
+        }
+        .sheet(isPresented: $vm.showDocumentPicker) {
+            DocumentPicker(fileURL: $vm.selectedDocumentURL)
+        }
+        .sheet(isPresented: $showCamera) {
+            CameraPicker(image: $vm.selectedImage)
+        }
         .sheet(item: $vm.selectedRoutine) { routine in
             SystemDetailView(system: routine)
         }
         .navigationDestination(isPresented: $vm.navigateToChat) {
             if let sessionId = vm.createdSessionId,
                let coachName = vm.createdCoachName {
+                let _ = print("🚀 Navigation destination triggered - sessionID: \(sessionId)")
                 ChatView(viewModel: vm.createChatViewModel(
                     sessionId: sessionId,
                     coachName: coachName,
                     initialPrompt: vm.createdInitialPrompt
                 ))
+            } else {
+                let _ = print("❌ Navigation destination triggered but missing session info")
+                Text("Error: Missing session information")
             }
         }
         .task {
@@ -380,61 +396,91 @@ struct MomentView: View {
     // MARK: - Bottom Action Bar
     
     private var bottomActionBar: some View {
-        HStack(spacing: 16) {
-            // Attachment Button (available in both modes)
-            PhotosPicker(selection: $vm.selectedPhotoItem, matching: .images) {
-                Image(systemName: "photo")
-                    .font(.system(size: 20))
-                    .foregroundColor(.secondary)
-                    .frame(width: 44, height: 44)
-            }
-            .onChange(of: vm.selectedPhotoItem) { _, _ in
-                vm.handlePhotoSelection()
-            }
-            
-            Spacer()
-            
-            // Send Button (for both voice and text)
-            Button(action: { 
-                isTextFieldFocused = false
-                if vm.inputMode == .voice && vm.hasRecordedAudio {
-                    // Send voice recording
-                    vm.startFreeform() // TODO: Implement voice sending
-                } else if vm.inputMode == .text {
-                    // Send text
-                    vm.startFreeform()
-                }
-            }) {
-                HStack(spacing: 6) {
-                    if vm.isLoading {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            .scaleEffect(0.8)
-                    } else {
-                        Image(systemName: "arrow.up")
-                            .font(.system(size: 16, weight: .semibold))
+        VStack(spacing: 0) {
+            // Attached files preview
+            if !vm.attachedFiles.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(vm.attachedFiles) { file in
+                            AttachedFilePreview(file: file) {
+                                vm.removeAttachment(file)
+                            }
+                        }
                     }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
                 }
-                .foregroundColor(.white)
-                .frame(width: 36, height: 36)
-                .background(
-                    (canSend && !vm.isLoading) 
-                        ? theme.accentPrimary 
-                        : Color.secondary.opacity(0.3)
-                )
-                .clipShape(Circle())
+                .background(Color(.systemGray6).opacity(0.5))
+                
+                Divider()
             }
-            .disabled(!canSend || vm.isLoading)
+            
+            HStack(spacing: 16) {
+                // Attachment Options Button (like ChatView)
+                Button(action: {
+                    showAttachmentOptions = true
+                }) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(.gray)
+                        .frame(width: 32, height: 32)
+                        .background(Color(.systemGray6))
+                        .clipShape(Circle())
+                }
+                .disabled(vm.isLoading)
+                .confirmationDialog("Add Attachment", isPresented: $showAttachmentOptions, titleVisibility: .visible) {
+                    Button("Photo Library") { showImagePicker = true }
+                    Button("Camera") { showCamera = true }
+                    Button("Document") { vm.showDocumentPicker = true }
+                    Button("Cancel", role: .cancel) { }
+                }
+                
+                Spacer()
+                
+                // Send Button (for both voice and text)
+                Button(action: { 
+                    isTextFieldFocused = false
+                    if vm.inputMode == .voice && vm.hasRecordedAudio {
+                        // Send voice recording
+                        Task {
+                            await vm.sendVoiceMessage()
+                        }
+                    } else if vm.inputMode == .text {
+                        // Send text
+                        vm.startFreeform()
+                    }
+                }) {
+                    HStack(spacing: 6) {
+                        if vm.isLoading {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                .scaleEffect(0.8)
+                        } else {
+                            Image(systemName: "arrow.up")
+                                .font(.system(size: 16, weight: .semibold))
+                        }
+                    }
+                    .foregroundColor(.white)
+                    .frame(width: 36, height: 36)
+                    .background(
+                        (canSend && !vm.isLoading) 
+                            ? theme.accentPrimary 
+                            : Color.secondary.opacity(0.3)
+                    )
+                    .clipShape(Circle())
+                }
+                .disabled(!canSend || vm.isLoading)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
     }
     
     private var canSend: Bool {
         if vm.inputMode == .voice {
             return vm.hasRecordedAudio
         } else {
-            return !vm.freeformInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            return !vm.freeformInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !vm.attachedFiles.isEmpty
         }
     }
     
@@ -1319,5 +1365,52 @@ struct EmptyUpcomingState: View {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(Color(.systemGray5), style: StrokeStyle(lineWidth: 1, dash: [5, 5]))
         )
+    }
+}
+
+// MARK: - Attached File Preview
+
+struct AttachedFilePreview: View {
+    let file: AttachedFile
+    let onRemove: () -> Void
+    
+    @EnvironmentObject private var theme: ThemeStore
+    
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            HStack(spacing: 8) {
+                // Icon based on file type
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(file.type == .image ? Color.blue.opacity(0.1) : Color.orange.opacity(0.1))
+                        .frame(width: 40, height: 40)
+                    
+                    Image(systemName: file.type == .image ? "photo" : "doc.fill")
+                        .font(.system(size: 18))
+                        .foregroundColor(file.type == .image ? .blue : .orange)
+                }
+                
+                // File name
+                Text(file.name)
+                    .font(theme.font(13))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .frame(maxWidth: 120)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color(.systemBackground))
+            .cornerRadius(10)
+            .shadow(color: Color.black.opacity(0.05), radius: 4, x: 0, y: 2)
+            
+            // Remove button
+            Button(action: onRemove) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 18))
+                    .foregroundColor(.secondary)
+                    .background(Color.white.clipShape(Circle()))
+            }
+            .offset(x: 6, y: -6)
+        }
     }
 }

@@ -28,8 +28,8 @@ struct SimonApp: App {
         // Use debug provider for development/testing
         let providerFactory = AppCheckDebugProviderFactory()
         #else
-        // Use DeviceCheck provider for production
-        let providerFactory = AppCheckDeviceCheckProviderFactory()
+        // Use AppAttest provider for production
+        let providerFactory = AppAttestProviderFactory()
         #endif
         AppCheck.setAppCheckProviderFactory(providerFactory)
         
@@ -145,4 +145,12 @@ struct EventsDeepLink: Equatable {
     let coachID: String?
     let status: String?
     let tab: EventTab
+}
+
+// MARK: - AppAttest Provider Factory
+
+class AppAttestProviderFactory: NSObject, AppCheckProviderFactory {
+    func createProvider(with app: FirebaseApp) -> AppCheckProvider? {
+        return AppAttestProvider(app: app)
+    }
 }

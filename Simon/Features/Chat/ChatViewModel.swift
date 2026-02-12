@@ -1024,6 +1024,43 @@ final class ChatViewModel: ObservableObject {
         }
     }
     
+    // MARK: - Voice Message from Moments
+    
+    func sendVoiceMessageFromMoment(_ audioData: Data) async {
+        // Clear previous cards
+        nextActionsCard = nil
+        planCard = nil
+        weeklyReviewCard = nil
+        toolRequest = nil
+        policyNotice = nil
+        
+        // Start streaming
+        isStreaming = true
+        errorMessage = nil
+        
+        streamingTask = Task {
+            // Add user message to UI (voice indicator)
+            await MainActor.run {
+                AnalyticsManager.shared.logMessageSent(
+                    coachID: sessionCoachID ?? "unknown",
+                    messageLength: 0 // Voice message
+                )
+                
+                let userMessage = Message(
+                    id: UUID().uuidString,
+                    role: "user",
+                    contentText: "🎤 Voice message",
+                    attachments: nil,
+                    createdAt: Date()
+                )
+                messages.append(userMessage)
+            }
+            
+            // Stream voice response
+            await streamVoiceResponse(audioData: audioData)
+        }
+    }
+    
     deinit {
         streamingTask?.cancel()
         errorDisplayTask?.cancel()

@@ -2,14 +2,14 @@
 //  MomentViewModel.swift
 //  Simon
 //
-//  Created on Day 12-14: Moment + Router Agent
-//
 
 import Foundation
 import Combine
 import AVFoundation
 import PhotosUI
 import SwiftUI
+import FirebaseStorage
+import FirebaseAuth
 
 struct MomentTemplate: Identifiable {
     let id: String
@@ -44,7 +44,17 @@ final class MomentViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var isLoadingEvents: Bool = false
     @Published var errorMessage: String?
     @Published var showPaywall: Bool = false
-    @Published var navigateToChat: Bool = false
+    @Published var navigateToChat: Bool = false {
+        didSet {
+            print("🔄 navigateToChat changed: \(oldValue) → \(navigateToChat)")
+            if navigateToChat {
+                print("✅ Navigation should trigger now")
+                print("   - sessionId: \(createdSessionId ?? "nil")")
+                print("   - coachName: \(createdCoachName ?? "nil")")
+                print("   - pendingVoiceData: \(pendingVoiceData?.count ?? 0) bytes")
+            }
+        }
+    }
     @Published var createdSessionId: String?
     @Published var createdCoachName: String?
     @Published var createdInitialPrompt: String? // Store the first message from backend
@@ -56,9 +66,17 @@ final class MomentViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var showDocumentPicker: Bool = false
     @Published var attachedFiles: [AttachedFile] = []
     @Published var selectedPhotoItem: PhotosPickerItem?
+    @Published var selectedImage: UIImage? {
+        didSet { if let image = selectedImage { handlePickedImage(image) } }
+    }
+    @Published var selectedDocumentURL: URL? {
+        didSet { if let url = selectedDocumentURL { handleDocumentSelection(url) } }
+    }
     @Published var inputMode: InputMode = .voice // Toggle between text and voice (voice is default)
     @Published var recordingDuration: TimeInterval = 0
     @Published var audioLevels: [CGFloat] = Array(repeating: 0.3, count: 40) // For waveform visualization
+    @Published var voiceOverEnabled: Bool = true // Voice-over preference
+    @Published var pendingVoiceData: Data? // Store voice data to send after navigation
     
     // Audio playback properties
     @Published var hasRecordedAudio: Bool = false
@@ -333,6 +351,51 @@ final class MomentViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
     }
     
+    func sendVoiceMessage() async {
+        guard let audioURL = recordedAudioURL else {
+            errorMessage = "No audio recording available"
+            return
+        }
+        
+        isLoading = true
+        errorMessage = nil
+        
+        do {
+            // Read audio data
+            let audioData = try Data(contentsOf: audioURL)
+            
+            print("🎤 Sending voice message - audio size: \(audioData.count) bytes")
+            
+            // Create session WITHOUT saving a message
+            // The voice message will be saved when we stream it
+            let response = try await apiClient.startMoment(prompt: "", attachments: nil) // Empty prompt for voice-only
+            
+            print("✅ Session created: \(response.sessionId)")
+            
+            // Store session info for navigation
+            createdSessionId = response.sessionId
+            createdCoachName = response.coachName
+            createdInitialPrompt = nil // Will send voice after navigation
+            
+            // Store audio data for sending after navigation
+            pendingVoiceData = audioData
+            
+            print("🎤 Pending voice data stored: \(audioData.count) bytes")
+            print("🎤 Setting navigateToChat = true")
+            
+            // Navigate to chat - the chat will handle sending the voice message
+            // DON'T reset isLoading or delete audio yet - let navigation complete first
+            navigateToChat = true
+            
+            print("✅ Navigation triggered, waiting for view to appear")
+            
+        } catch {
+            print("❌ Voice message send error: \(error)")
+            errorMessage = error.localizedDescription
+            isLoading = false
+        }
+    }
+    
     private func startMoment(prompt: String) async {
         // No paywall restrictions - everyone can use moments
         
@@ -340,8 +403,14 @@ final class MomentViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
         errorMessage = nil
         
         do {
+            // Upload attachments if any
+            var uploadedAttachments: [Attachment]? = nil
+            if !attachedFiles.isEmpty {
+                uploadedAttachments = try await uploadAttachments()
+            }
+            
             // Call backend to create session immediately
-            let response = try await apiClient.startMoment(prompt: prompt)
+            let response = try await apiClient.startMoment(prompt: prompt, attachments: uploadedAttachments)
             
             // Navigate to chat immediately
             // The chat will show "Finding the best coach for you..." while streaming
@@ -353,12 +422,77 @@ final class MomentViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
             // Reset form
             freeformInput = ""
             selectedTemplate = nil
+            attachedFiles = [] // Clear attachments
             
         } catch {
             errorMessage = error.localizedDescription
         }
         
         isLoading = false
+    }
+    
+    // MARK: - Attachment Upload
+    
+    private func uploadAttachments() async throws -> [Attachment] {
+        guard let uid = authManager.currentUser?.uid else {
+            throw NSError(domain: "MomentViewModel", code: 401,
+                         userInfo: [NSLocalizedDescriptionKey: "You must be signed in to upload files"])
+        }
+        
+        return try await withThrowingTaskGroup(of: Attachment.self) { group in
+            for file in attachedFiles {
+                group.addTask {
+                    return try await self.uploadSingleAttachment(file, uid: uid)
+                }
+            }
+            
+            var results: [Attachment] = []
+            for try await attachment in group {
+                results.append(attachment)
+            }
+            return results
+        }
+    }
+    
+    private func uploadSingleAttachment(_ file: AttachedFile, uid: String) async throws -> Attachment {
+        let filename = file.name
+        let sessionId = UUID().uuidString // Temporary session ID for upload path
+        let path = "uploads/\(uid)/\(sessionId)/\(filename)"
+        
+        // Import Firebase Storage
+        let storageRef = Storage.storage().reference().child(path)
+        
+        let metadata = StorageMetadata()
+        metadata.contentType = file.type == .image ? "image/jpeg" : "application/octet-stream"
+        
+        return try await withCheckedThrowingContinuation { continuation in
+            storageRef.putData(file.data, metadata: metadata) { metadata, error in
+                if let error = error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                
+                storageRef.downloadURL { url, error in
+                    if let error = error {
+                        continuation.resume(throwing: error)
+                        return
+                    }
+                    
+                    if let url = url {
+                        let attachment = Attachment(
+                            type: file.type == .image ? "image" : "file",
+                            storagePath: "gs://\(storageRef.bucket)/\(path)",
+                            downloadURL: url.absoluteString,
+                            mimeType: metadata?.contentType ?? "application/octet-stream"
+                        )
+                        continuation.resume(returning: attachment)
+                    } else {
+                        continuation.resume(throwing: NSError(domain: "MomentViewModel", code: 500,
+                                                             userInfo: [NSLocalizedDescriptionKey: "Failed to get download URL"]))
+                    }
+                }
+            }
+        }
     }
     
     private func incrementMomentCount() {
@@ -369,7 +503,9 @@ final class MomentViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
     
     func createChatViewModel(sessionId: String, coachName: String, initialPrompt: String?) -> ChatViewModel {
-        return ChatViewModel(
+        print("🎤 Creating ChatViewModel with voiceOverEnabled: \(voiceOverEnabled)")
+        
+        let chatVM = ChatViewModel(
             sessionID: sessionId,
             coachName: coachName,
             apiClient: apiClient,
@@ -377,6 +513,34 @@ final class MomentViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
             isNewSession: true, // This is a new session from a moment
             purchasesService: purchases
         )
+        
+        // Pass voice-over preference
+        chatVM.voiceOverEnabled = voiceOverEnabled
+        print("🎤 ChatViewModel voiceOverEnabled set to: \(chatVM.voiceOverEnabled)")
+        
+        // If we have pending voice data, send it after chat loads
+        if let voiceData = pendingVoiceData {
+            Task {
+                // Wait a moment for chat to initialize
+                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+                
+                // Send the voice message
+                await chatVM.sendVoiceMessageFromMoment(voiceData)
+                
+                // Clear pending data and cleanup
+                await MainActor.run {
+                    self.pendingVoiceData = nil
+                    self.isLoading = false
+                    self.deleteRecordedAudio() // Clean up the recording UI
+                    print("✅ Voice data sent and cleaned up")
+                }
+            }
+        } else {
+            // No pending voice data, just reset loading state
+            isLoading = false
+        }
+        
+        return chatVM
     }
     
     // MARK: - Voice Input
@@ -677,6 +841,35 @@ final class MomentViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 errorMessage = "Failed to load image: \(error.localizedDescription)"
             }
             selectedPhotoItem = nil
+        }
+    }
+    
+    private func handlePickedImage(_ image: UIImage) {
+        guard let data = image.jpegData(compressionQuality: 0.7) else { return }
+        let file = AttachedFile(
+            name: "image_\(Date().timeIntervalSince1970).jpg",
+            type: .image,
+            data: data
+        )
+        attachedFiles.append(file)
+        selectedImage = nil
+    }
+    
+    func handleDocumentSelection(_ url: URL) {
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+        
+        do {
+            let data = try Data(contentsOf: url)
+            let file = AttachedFile(
+                name: url.lastPathComponent,
+                type: .document,
+                data: data
+            )
+            attachedFiles.append(file)
+            selectedDocumentURL = nil
+        } catch {
+            errorMessage = "Failed to load document: \(error.localizedDescription)"
         }
     }
     
