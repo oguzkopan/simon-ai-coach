@@ -43,7 +43,13 @@ final class ChatViewModel: ObservableObject {
     @Published var voiceRecordingManager = VoiceRecordingManager()
     
     // Voice-over playback
-    @Published var voiceOverEnabled = true // Default to enabled
+    @Published var voiceOverEnabled: Bool {
+        didSet {
+            // Save preference globally
+            UserDefaults.standard.set(voiceOverEnabled, forKey: "voiceOverEnabled_global")
+            print("🎤 Voice-over preference saved: \(voiceOverEnabled)")
+        }
+    }
     @Published var audioStreamPlayer = AudioStreamPlayer()
     
     // Coach selection state (for moments)
@@ -111,7 +117,7 @@ final class ChatViewModel: ObservableObject {
         localAttachments.removeAll { $0.id == id }
     }
     
-    init(sessionID: String, coachName: String, apiClient: SimonAPI, toolExecutor: ToolExecutor? = nil, initialPrompt: String? = nil, isNewSession: Bool = false, purchasesService: PurchasesService? = nil) {
+    init(sessionID: String, coachName: String, apiClient: SimonAPI, toolExecutor: ToolExecutor? = nil, initialPrompt: String? = nil, isNewSession: Bool = false, purchasesService: PurchasesService? = nil, voiceOverEnabled: Bool? = nil) {
         print("🟢 ChatViewModel init - sessionID: \(sessionID), coachName: \(coachName), isNewSession: \(isNewSession)")
         self.sessionID = sessionID
         self.coachName = coachName
@@ -120,6 +126,18 @@ final class ChatViewModel: ObservableObject {
         self.initialPrompt = initialPrompt
         self.isNewSession = isNewSession
         self.purchasesService = purchasesService
+        
+        // Load voice-over preference: use parameter if provided, otherwise load from UserDefaults, default to true
+        if let voiceOverEnabled = voiceOverEnabled {
+            self.voiceOverEnabled = voiceOverEnabled
+            print("🎤 ChatViewModel voiceOverEnabled set from parameter: \(voiceOverEnabled)")
+        } else if UserDefaults.standard.object(forKey: "voiceOverEnabled_global") != nil {
+            self.voiceOverEnabled = UserDefaults.standard.bool(forKey: "voiceOverEnabled_global")
+            print("🎤 ChatViewModel voiceOverEnabled loaded from UserDefaults: \(self.voiceOverEnabled)")
+        } else {
+            self.voiceOverEnabled = true // Default to enabled
+            print("🎤 ChatViewModel voiceOverEnabled defaulted to: true")
+        }
         
         // Initialize selectedCoachName with the initial coach name
         // This will be updated when coach selection completes

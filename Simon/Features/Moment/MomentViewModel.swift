@@ -78,6 +78,9 @@ final class MomentViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var voiceOverEnabled: Bool = true // Voice-over preference
     @Published var pendingVoiceData: Data? // Store voice data to send after navigation
     
+    // Voice recording manager (same as ChatView)
+    @Published var voiceRecordingManager = VoiceRecordingManager()
+    
     // Audio playback properties
     @Published var hasRecordedAudio: Bool = false
     @Published var isPlayingAudio: Bool = false
@@ -115,10 +118,7 @@ final class MomentViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
     private let purchases: PurchasesService
     private let eventPersistence: EventPersistenceService
     private let authManager: AuthenticationManager
-    private var audioRecorder: AVAudioRecorder?
-    private var audioSession: AVAudioSession?
-    private var recordingTimer: Timer?
-    private var levelTimer: Timer?
+    private var recordingObserverTimer: Timer?
     
     var isPro: Bool {
         purchases.isPro
@@ -352,7 +352,7 @@ final class MomentViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
     
     func sendVoiceMessage() async {
-        guard let audioURL = recordedAudioURL else {
+        guard let recordedAudio = voiceRecordingManager.recordedAudio else {
             errorMessage = "No audio recording available"
             return
         }
@@ -361,10 +361,10 @@ final class MomentViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
         errorMessage = nil
         
         do {
-            // Read audio data
-            let audioData = try Data(contentsOf: audioURL)
+            // Use the PCM16 data from the recording manager
+            let audioData = recordedAudio.data
             
-            print("🎤 Sending voice message - audio size: \(audioData.count) bytes")
+            print("🎤 Sending voice message - audio size: \(audioData.count) bytes, duration: \(recordedAudio.duration)s")
             
             // Create session WITHOUT saving a message
             // The voice message will be saved when we stream it
@@ -514,12 +514,11 @@ final class MomentViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
             apiClient: apiClient,
             initialPrompt: initialPrompt,
             isNewSession: true, // This is a new session from a moment
-            purchasesService: purchases
+            purchasesService: purchases,
+            voiceOverEnabled: voiceOverEnabled // Pass voice-over preference during init (will override UserDefaults)
         )
         
-        // Pass voice-over preference
-        chatVM.voiceOverEnabled = voiceOverEnabled
-        print("🎤 ChatViewModel voiceOverEnabled set to: \(chatVM.voiceOverEnabled)")
+        print("✅ ChatViewModel created with voiceOverEnabled: \(chatVM.voiceOverEnabled)")
         
         // If we have pending voice data, send it after chat loads
         // IMPORTANT: Don't modify @Published properties here - it causes infinite loop
@@ -573,46 +572,21 @@ final class MomentViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
         
         // Stop recording if switching away from voice mode
         if inputMode == .text && isRecording {
-            stopVoiceRecording()
+            Task {
+                await voiceRecordingManager.cancelRecording()
+                isRecording = false
+            }
         }
     }
     
     func startVoiceRecording() {
         Task {
             do {
-                // Request microphone permission
-                let permissionGranted = await AVAudioApplication.requestRecordPermission()
-                
-                guard permissionGranted else {
-                    errorMessage = "Microphone permission is required for voice input"
-                    return
-                }
-                
-                // Setup audio session
-                audioSession = AVAudioSession.sharedInstance()
-                try audioSession?.setCategory(.record, mode: .default)
-                try audioSession?.setActive(true)
-                
-                // Setup recorder
-                let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-                let audioFilename = documentsPath.appendingPathComponent("moment_recording_\(Date().timeIntervalSince1970).m4a")
-                
-                let settings: [String: Any] = [
-                    AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-                    AVSampleRateKey: 44100.0,
-                    AVNumberOfChannelsKey: 1,
-                    AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
-                ]
-                
-                audioRecorder = try AVAudioRecorder(url: audioFilename, settings: settings)
-                audioRecorder?.isMeteringEnabled = true
-                audioRecorder?.record()
-                
+                try await voiceRecordingManager.startRecording()
                 isRecording = true
-                recordingDuration = 0
                 
-                // Start timers for duration and audio levels
-                startRecordingTimers()
+                // Start timer to update duration and levels
+                startRecordingObserver()
                 
             } catch {
                 errorMessage = "Failed to start recording: \(error.localizedDescription)"
@@ -621,85 +595,71 @@ final class MomentViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
     }
     
-    private func startRecordingTimers() {
-        // Duration timer (selector-based to avoid @Sendable capture)
-        recordingTimer?.invalidate()
-        recordingTimer = Timer.scheduledTimer(timeInterval: 0.1,
-                                              target: self,
-                                              selector: #selector(recordingTimerFired),
-                                              userInfo: nil,
-                                              repeats: true)
-        RunLoop.main.add(recordingTimer!, forMode: .common)
+    private func startRecordingObserver() {
+        // Invalidate any existing timer
+        recordingObserverTimer?.invalidate()
         
-        // Audio level timer for waveform (selector-based)
-        levelTimer?.invalidate()
-        levelTimer = Timer.scheduledTimer(timeInterval: 0.05,
-                                          target: self,
-                                          selector: #selector(levelTimerFired),
-                                          userInfo: nil,
-                                          repeats: true)
-        RunLoop.main.add(levelTimer!, forMode: .common)
-    }
-    
-    @objc private func recordingTimerFired() {
-        recordingDuration += 0.1
-    }
-    
-    @objc private func levelTimerFired() {
-        updateAudioLevels()
-    }
-    
-    private func updateAudioLevels() {
-        guard let recorder = audioRecorder, recorder.isRecording else { return }
-        
-        recorder.updateMeters()
-        let power = recorder.averagePower(forChannel: 0)
-        
-        // Convert power (-160 to 0) to a normalized value (0.1 to 1.0)
-        let normalizedPower = max(0.1, min(1.0, CGFloat((power + 160) / 160)))
-        
-        // Shift array and add new value
-        audioLevels.removeFirst()
-        audioLevels.append(normalizedPower)
+        // Observe the recording manager's published properties
+        recordingObserverTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
+                
+                // Check if still recording using the manager's property
+                guard self.voiceRecordingManager.isRecording else {
+                    self.recordingObserverTimer?.invalidate()
+                    self.recordingObserverTimer = nil
+                    return
+                }
+                
+                // Update duration from manager
+                self.recordingDuration = self.voiceRecordingManager.duration
+                
+                // Convert Float array to CGFloat for UI
+                self.audioLevels = self.voiceRecordingManager.audioLevels.map { CGFloat($0) }
+            }
+        }
     }
     
     func stopVoiceRecording() {
-        recordingTimer?.invalidate()
-        levelTimer?.invalidate()
-        recordingTimer = nil
-        levelTimer = nil
-        
-        audioRecorder?.stop()
-        isRecording = false
-        
-        guard let recordingURL = audioRecorder?.url else {
-            print("❌ No recording URL available")
-            return
-        }
-        
-        print("✅ Recording stopped - URL: \(recordingURL)")
-        print("📊 Recording duration: \(recordingDuration)")
-        
-        // Save the recording for playback
-        recordedAudioURL = recordingURL
-        savedAudioDuration = recordingDuration
-        hasRecordedAudio = true
-        
-        // Prepare audio player
-        do {
-            // Configure audio session for playback
-            let audioSession = AVAudioSession.sharedInstance()
-            try audioSession.setCategory(.playback, mode: .default)
-            try audioSession.setActive(true)
-            
-            audioPlayer = try AVAudioPlayer(contentsOf: recordingURL)
-            audioPlayer?.delegate = self // Set delegate to detect completion
-            audioPlayer?.prepareToPlay()
-            
-            print("✅ Audio player prepared - duration: \(audioPlayer?.duration ?? 0)")
-        } catch {
-            print("❌ Failed to prepare audio player: \(error)")
-            errorMessage = "Failed to prepare audio for playback"
+        Task {
+            do {
+                // Stop the observer timer
+                recordingObserverTimer?.invalidate()
+                recordingObserverTimer = nil
+                
+                let recorded = try await voiceRecordingManager.stopRecording()
+                isRecording = false
+                
+                print("✅ Recording stopped - duration: \(recorded.duration)s, data size: \(recorded.data.count) bytes")
+                
+                // Save the recording for playback
+                recordedAudioURL = recorded.fileURL
+                savedAudioDuration = recorded.duration
+                hasRecordedAudio = true
+                
+                // Prepare audio player for playback
+                do {
+                    let audioSession = AVAudioSession.sharedInstance()
+                    try audioSession.setCategory(.playback, mode: .default)
+                    try audioSession.setActive(true)
+                    
+                    audioPlayer = try AVAudioPlayer(contentsOf: recorded.fileURL)
+                    audioPlayer?.delegate = self
+                    audioPlayer?.prepareToPlay()
+                    
+                    print("✅ Audio player prepared for playback")
+                } catch {
+                    print("❌ Failed to prepare audio player: \(error)")
+                    errorMessage = "Failed to prepare audio for playback"
+                }
+                
+            } catch {
+                print("❌ Failed to stop recording: \(error)")
+                errorMessage = "Failed to save recording: \(error.localizedDescription)"
+                isRecording = false
+            }
         }
     }
     
@@ -772,9 +732,8 @@ final class MomentViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
     func deleteRecordedAudio() {
         stopPlayback()
         
-        if let url = recordedAudioURL {
-            try? FileManager.default.removeItem(at: url)
-        }
+        // Reset the voice recording manager
+        voiceRecordingManager.reset()
         
         recordedAudioURL = nil
         audioPlayer = nil
@@ -784,20 +743,16 @@ final class MomentViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
     
     func cancelVoiceRecording() {
-        recordingTimer?.invalidate()
-        levelTimer?.invalidate()
-        recordingTimer = nil
-        levelTimer = nil
-        
-        audioRecorder?.stop()
-        
-        if let recordingURL = audioRecorder?.url {
-            try? FileManager.default.removeItem(at: recordingURL)
+        Task {
+            // Stop the observer timer
+            recordingObserverTimer?.invalidate()
+            recordingObserverTimer = nil
+            
+            await voiceRecordingManager.cancelRecording()
+            isRecording = false
+            recordingDuration = 0
+            audioLevels = Array(repeating: 0.3, count: 40)
         }
-        
-        isRecording = false
-        recordingDuration = 0
-        audioLevels = Array(repeating: 0.3, count: 40)
     }
     
     // MARK: - AVAudioPlayerDelegate
@@ -822,21 +777,6 @@ final class MomentViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
         } else {
             startVoiceRecording()
         }
-    }
-    
-    private func transcribeAudio(url: URL) async {
-        // TODO: Implement speech-to-text transcription using Speech framework
-        // For now, we'll just clean up the audio file
-        // In production, you would:
-        // 1. Use SFSpeechRecognizer to transcribe the audio
-        // 2. Append the transcribed text to freeformInput
-        // 3. Handle errors gracefully
-        
-        // Clean up the audio file
-        try? FileManager.default.removeItem(at: url)
-        
-        // Show a message that transcription is not yet implemented
-        errorMessage = "Voice transcription coming soon. Please type your message for now."
     }
     
     // MARK: - Attachment
