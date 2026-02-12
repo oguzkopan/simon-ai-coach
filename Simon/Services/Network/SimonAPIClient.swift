@@ -66,7 +66,7 @@ protocol SimonAPI {
     func getVoicePresets() async throws -> [VoicePreset]
     
     // Voice chat streaming
-    func streamVoiceChat(sessionID: String, audioData: Data, text: String?, attachments: [Attachment]?) -> AsyncThrowingStream<SSEEvent, Error>
+    func streamVoiceChat(sessionID: String, audioData: Data, text: String?, attachments: [Attachment]?, voiceOverEnabled: Bool) -> AsyncThrowingStream<SSEEvent, Error>
 }
 
 struct SessionDetail: Codable {
@@ -1076,7 +1076,7 @@ final class SimonAPIClient: SimonAPI {
     
     // MARK: - Voice Chat Streaming
     
-    func streamVoiceChat(sessionID: String, audioData: Data, text: String? = nil, attachments: [Attachment]? = nil) -> AsyncThrowingStream<SSEEvent, Error> {
+    func streamVoiceChat(sessionID: String, audioData: Data, text: String? = nil, attachments: [Attachment]? = nil, voiceOverEnabled: Bool = true) -> AsyncThrowingStream<SSEEvent, Error> {
         // Use the regular chat endpoint - it now handles audio!
         let url = baseURL.appendingPathComponent("/v1/sessions/\(sessionID)/stream")
         
@@ -1094,7 +1094,8 @@ final class SimonAPIClient: SimonAPI {
             "user_text": text ?? "🎤 Voice message",
             "audio_data": audioBase64,
             "user_timezone": timezone,
-            "user_local_time": localTime
+            "user_local_time": localTime,
+            "voice_over_enabled": voiceOverEnabled
         ]
         
         if let attachments = attachments {

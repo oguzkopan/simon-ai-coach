@@ -118,6 +118,7 @@ struct ChatView: View {
                 ScrollView {
                     LazyVStack(spacing: 12) {
                         if viewModel.isLoadingMessages {
+                            let _ = print("🎨 Rendering loading indicator")
                             // State 1: Loading messages
                             VStack(spacing: 16) {
                                 ProgressView()
@@ -174,42 +175,15 @@ struct ChatView: View {
                         } else if viewModel.messages.isEmpty && viewModel.hasCompletedInitialLoad {
                             // State 3: Successfully loaded but no messages yet (empty session)
                             
-                            // Show ONLY processing steps if coach selection is in progress
+                            // Show processing steps if coach selection is in progress
                             if viewModel.isSelectingCoach && !viewModel.processingSteps.isEmpty {
-                                VStack(spacing: 0) {
-                                    Spacer()
-                                    
-                                    VStack(alignment: .leading, spacing: 12) {
-                                        ForEach(viewModel.processingSteps) { step in
-                                            HStack(spacing: 12) {
-                                                if step.isComplete {
-                                                    Image(systemName: "checkmark.circle.fill")
-                                                        .font(.system(size: 16))
-                                                        .foregroundColor(.green)
-                                                } else {
-                                                    ProgressView()
-                                                        .scaleEffect(0.8)
-                                                        .frame(width: 16, height: 16)
-                                                }
-                                                
-                                                Text(step.message)
-                                                    .font(theme.font(15))
-                                                    .italic()
-                                                    .foregroundColor(step.isComplete ? .secondary : theme.accentPrimary)
-                                            }
-                                            .transition(.opacity.combined(with: .move(edge: .top)))
-                                        }
-                                    }
-                                    .padding(.horizontal, 24)
-                                    .padding(.vertical, 16)
-                                    .background(Color(.systemGray6).opacity(0.5))
-                                    .cornerRadius(16)
-                                    .transition(.opacity.combined(with: .scale))
-                                    
-                                    Spacer()
+                                ForEach(viewModel.processingSteps) { step in
+                                    ProcessingStepBubble(step: step)
+                                        .id(step.id)
+                                        .transition(.opacity.combined(with: .move(edge: .leading)))
                                 }
                             } else {
-                                // Empty state (no processing, no messages)
+                                // Empty state
                                 VStack(spacing: 16) {
                                     Image(systemName: "bubble.left.and.bubble.right")
                                         .font(.system(size: 48))
@@ -229,6 +203,15 @@ struct ChatView: View {
                                     viewModel.pinAsSystem(msg)
                                 })
                                 .id(message.id)
+                            }
+                            
+                            // Processing steps (shown as message bubbles during coach selection)
+                            if viewModel.isSelectingCoach && !viewModel.processingSteps.isEmpty {
+                                ForEach(viewModel.processingSteps) { step in
+                                    ProcessingStepBubble(step: step)
+                                        .id(step.id)
+                                        .transition(.opacity.combined(with: .move(edge: .leading)))
+                                }
                             }
                             
                             // Typing indicator (shown while coach is thinking)
@@ -337,10 +320,10 @@ struct ChatView: View {
                     }
                 }
                 .onChange(of: viewModel.processingSteps.count) {
-                    // Scroll to show processing steps
-                    if !viewModel.processingSteps.isEmpty, let lastMessage = viewModel.messages.last {
+                    // Scroll to show latest processing step
+                    if !viewModel.processingSteps.isEmpty, let lastStep = viewModel.processingSteps.last {
                         withAnimation {
-                            proxy.scrollTo(lastMessage.id, anchor: .top)
+                            proxy.scrollTo(lastStep.id, anchor: .bottom)
                         }
                     }
                 }
@@ -564,6 +547,11 @@ struct ChatView: View {
                 print("🟢 Calling loadMessages()")
                 await viewModel.loadMessages()
             }
+        }
+        .onChange(of: purchases.isPro) { _, newValue in
+            // Reload message count when subscription status changes
+            print("📊 Subscription status changed: isPro = \(newValue)")
+            viewModel.loadMessageCount()
         }
         .fullScreenCover(isPresented: $showPaywall) {
             PaywallView(
@@ -1099,4 +1087,40 @@ private func formatTime(_ isoString: String) -> String {
     displayFormatter.timeStyle = .short
     
     return displayFormatter.string(from: date)
+}
+
+// MARK: - Processing Step Bubble
+
+/// Shows processing steps as message bubbles (like assistant messages)
+struct ProcessingStepBubble: View {
+    let step: ChatViewModel.ProcessingStep
+    @EnvironmentObject private var theme: ThemeStore
+    
+    var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            HStack(alignment: .top, spacing: 12) {
+                // Status icon
+                if step.isComplete {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 18))
+                        .foregroundColor(.green)
+                } else {
+                    ProgressView()
+                        .scaleEffect(0.9)
+                        .frame(width: 18, height: 18)
+                }
+                
+                // Message text
+                Text(step.message)
+                    .font(theme.font(15))
+                    .italic()
+                    .foregroundColor(step.isComplete ? .secondary : theme.accentPrimary)
+            }
+            .padding(12)
+            .background(Color(.systemGray6).opacity(0.7))
+            .cornerRadius(16)
+            
+            Spacer(minLength: 40)
+        }
+    }
 }

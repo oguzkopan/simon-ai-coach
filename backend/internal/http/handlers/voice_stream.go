@@ -4,6 +4,7 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"time"
 
 	"simon-backend/internal/config"
 	"simon-backend/internal/elevenlabs"
@@ -49,6 +50,7 @@ func (vso *VoiceStreamOrchestrator) StreamWithVoice(
 	fs *fsClient.Client,
 	output *orchestrator.PipelineOutput,
 	coachVoiceConfig *models.VoiceConfig,
+	sessionID string,
 	flusher func(),
 ) error {
 	if vso.elevenLabsClient == nil {
@@ -96,28 +98,29 @@ func (vso *VoiceStreamOrchestrator) StreamWithVoice(
 			select {
 			case audioData, ok := <-session.AudioChan:
 				if !ok {
-					log.Printf("🎵 Audio channel closed")
 					return
 				}
 
 				// Send audio chunk to client via SSE
 				if err := sse.Event(c.Writer, "audio_chunk", map[string]interface{}{
-					"audio":    string(audioData), // Already base64 encoded
-					"isFinal": false,
+					"audio":    string(audioData),
+					"is_final": false,
 				}); err != nil {
 					log.Printf("❌ Error sending audio chunk: %v", err)
 					return
 				}
 				flusher()
-				log.Printf("🎵 Sent audio chunk: %d bytes", len(audioData))
 
 			case err := <-session.ErrorChan:
-				log.Printf("❌ ElevenLabs error: %v", err)
-				sse.Event(c.Writer, "error", map[string]interface{}{
-					"code":    "VOICE_STREAM_ERROR",
-					"message": err.Error(),
-				})
-				flusher()
+				// Don't send timeout errors to client - they're expected when stream ends
+				if !strings.Contains(err.Error(), "timeout") && !strings.Contains(err.Error(), "input_timeout_exceeded") {
+					log.Printf("❌ ElevenLabs error: %v", err)
+					sse.Event(c.Writer, "error", map[string]interface{}{
+						"code":    "VOICE_STREAM_ERROR",
+						"message": err.Error(),
+					})
+					flusher()
+				}
 				return
 
 			case <-vso.done:
@@ -129,27 +132,26 @@ func (vso *VoiceStreamOrchestrator) StreamWithVoice(
 
 	// Process pipeline events and send text to both client and ElevenLabs
 	var textBuffer strings.Builder
+	var assistantMessageID string
+	var assistantMessageText string
 	eventID := 0
 
 	for {
 		select {
 		case event, ok := <-output.Stream:
 			if !ok {
-				log.Printf("📝 Pipeline stream closed, flushing ElevenLabs")
 				// Send EOS to ElevenLabs to flush remaining audio
 				if err := session.SendEOS(); err != nil {
 					log.Printf("❌ Error sending EOS: %v", err)
 				}
 
-				// Wait a moment for final audio chunks
-				// Note: The audio goroutine will close when session.AudioChan closes
-				close(vso.done)
+				// Wait for audio to finish streaming
 				vso.wg.Wait()
 
 				// Send final audio marker
 				sse.Event(c.Writer, "audio_chunk", map[string]interface{}{
 					"audio":    "",
-					"isFinal": true,
+					"is_final": true,
 				})
 				flusher()
 
@@ -162,47 +164,76 @@ func (vso *VoiceStreamOrchestrator) StreamWithVoice(
 			if event.Type == "message.delta" {
 				if delta, ok := event.Data["delta"].(string); ok {
 					textBuffer.WriteString(delta)
+					assistantMessageText += delta
 
 					// Send text chunk to ElevenLabs for TTS
-					// Only send if we have meaningful text (not just whitespace)
-					trimmed := strings.TrimSpace(delta)
-					if len(trimmed) > 0 {
-						if err := session.SendText(delta); err != nil {
-							log.Printf("❌ Error sending text to ElevenLabs: %v", err)
-						} else {
-							log.Printf("📝 Sent text to ElevenLabs: %s", delta)
-						}
+					if err := session.SendText(delta); err != nil {
+						log.Printf("❌ Error sending text to ElevenLabs: %v", err)
 					}
 				}
 			}
 
-			// Forward all events to client
-			if err := sse.Event(c.Writer, event.Type, event.Data); err != nil {
-				log.Printf("❌ Error writing SSE event: %v", err)
-				close(vso.done)
-				return err
+			// Track message ID from message.final event
+			if event.Type == "message.final" {
+				if msgID, ok := event.Data["message_id"].(string); ok {
+					assistantMessageID = msgID
+				}
+				if text, ok := event.Data["text"].(string); ok {
+					assistantMessageText = text
+				}
 			}
-			flusher()
+
+			// Forward all events to client EXCEPT stream.done (we'll send that after audio finishes)
+			if event.Type != "stream.done" {
+				if err := sse.Event(c.Writer, event.Type, event.Data); err != nil {
+					log.Printf("❌ Error writing SSE event: %v", err)
+					close(vso.done)
+					return err
+				}
+				flusher()
+			}
 
 			// Exit on completion or error
 			if event.Type == "stream.done" || event.Type == "error" {
-				log.Printf("✅ Stream completed: type=%s", event.Type)
-
 				// Flush ElevenLabs
 				if err := session.SendEOS(); err != nil {
 					log.Printf("❌ Error sending EOS: %v", err)
 				}
 
-				// Wait for audio to finish
-				close(vso.done)
+				// Wait for audio to finish streaming
 				vso.wg.Wait()
 
 				// Send final audio marker
 				sse.Event(c.Writer, "audio_chunk", map[string]interface{}{
 					"audio":    "",
-					"isFinal": true,
+					"is_final": true,
 				})
 				flusher()
+				
+				// Save assistant message to Firestore
+				if assistantMessageText != "" && assistantMessageID != "" {
+					assistantMsg := models.Message{
+						ID:          assistantMessageID,
+						Role:        "assistant",
+						ContentText: assistantMessageText,
+						Attachments: nil,
+						CreatedAt:   time.Now(),
+					}
+
+					_, err := fs.DB.Collection("sessions").Doc(sessionID).
+						Collection("messages").Doc(assistantMsg.ID).Set(c.Request.Context(), assistantMsg)
+					if err != nil {
+						log.Printf("❌ Error saving assistant message in voice stream: %v", err)
+					} else {
+						log.Printf("✅ Saved assistant message in voice stream: %s", assistantMessageID)
+					}
+				}
+				
+				// Send stream.done to client
+				if event.Type == "stream.done" {
+					sse.Event(c.Writer, "stream.done", event.Data)
+					flusher()
+				}
 
 				return nil
 			}

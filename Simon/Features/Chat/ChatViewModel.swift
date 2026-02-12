@@ -43,7 +43,7 @@ final class ChatViewModel: ObservableObject {
     @Published var voiceRecordingManager = VoiceRecordingManager()
     
     // Voice-over playback
-    @Published var voiceOverEnabled = false
+    @Published var voiceOverEnabled = true // Default to enabled
     @Published var audioStreamPlayer = AudioStreamPlayer()
     
     // Coach selection state (for moments)
@@ -128,10 +128,21 @@ final class ChatViewModel: ObservableObject {
     
     // Load message count for unsubscribed users
     func loadMessageCount() {
-        guard let isPro = purchasesService?.isPro, !isPro else {
+        guard let isPro = purchasesService?.isPro else {
+            // If purchasesService is not available, assume free user
+            let key = "message_count_\(sessionID)"
+            let count = UserDefaults.standard.integer(forKey: key)
+            remainingMessages = max(0, 3 - count)
+            hasReachedMessageLimit = remainingMessages <= 0
+            print("📊 Message count loaded (no service): \(count)/3, remaining: \(remainingMessages)")
+            return
+        }
+        
+        if isPro {
             // Pro users have unlimited messages
             remainingMessages = -1
             hasReachedMessageLimit = false
+            print("📊 Pro user detected - unlimited messages")
             return
         }
         
@@ -141,7 +152,7 @@ final class ChatViewModel: ObservableObject {
         remainingMessages = max(0, 3 - count)
         hasReachedMessageLimit = remainingMessages <= 0
         
-        print("📊 Message count loaded: \(count)/3, remaining: \(remainingMessages)")
+        print("📊 Message count loaded: \(count)/3, remaining: \(remainingMessages), isPro: \(isPro)")
     }
     
     // Increment message count for unsubscribed users
@@ -431,19 +442,19 @@ final class ChatViewModel: ObservableObject {
                         print("⚠️ Stream task cancelled")
                         break
                     }
-                    
-                    print("📨 Received event: \(event)")
-                    
+                                        
                     switch event {
                     case .streamOpen(let payload):
                         print("✅ Stream opened: \(payload.sessionId)")
                         // Check if coach selection is in progress
                         if payload.coachSelecting == true {
+                            print("🔄 Coach selection started - isSelectingCoach = true")
                             isSelectingCoach = true
                         }
                         
                     case .processingStep(let payload):
                         print("🔄 Processing step: \(payload.step) - \(payload.message)")
+                        print("🔄 Current processingSteps count: \(processingSteps.count)")
                         await MainActor.run {
                             // Mark previous steps as complete
                             for i in 0..<processingSteps.count {
@@ -460,6 +471,7 @@ final class ChatViewModel: ObservableObject {
                                 isComplete: false,
                                 timestamp: Date()
                             ))
+                            print("🔄 Added processing step. New count: \(processingSteps.count)")
                         }
                         
                     case .coachSelected(let payload):
@@ -531,14 +543,15 @@ final class ChatViewModel: ObservableObject {
                         }
                     
                     case .audioChunk(let payload):
-                        print("🎵 Audio chunk received: \(payload.audio.prefix(50))...")
+                        print("🎵 Audio chunk received: \(payload.audio.prefix(50))... isFinal: \(payload.isFinal)")
                         // Enqueue audio for playback
                         await MainActor.run {
-                            if !payload.isFinal {
+                            if !payload.isFinal && !payload.audio.isEmpty {
                                 audioStreamPlayer.enqueueAudioChunk(payload.audio)
-                            } else {
-                                // Final audio chunk - end session
-                                audioStreamPlayer.endSession()
+                            } else if payload.isFinal {
+                                // Final audio chunk - mark as complete
+                                audioStreamPlayer.markFinalChunk()
+                                print("🎵 Marked final audio chunk - playback will stop when buffers complete")
                             }
                         }
                         
@@ -830,29 +843,30 @@ final class ChatViewModel: ObservableObject {
         var assistantText = ""
         let assistantID = UUID().uuidString
         
-        // Add placeholder assistant message
+        // Show typing indicator and start audio session
         await MainActor.run {
-            let placeholderMessage = Message(
-                id: assistantID,
-                role: "assistant",
-                contentText: "",
-                attachments: nil,
-                createdAt: Date()
-            )
-            messages.append(placeholderMessage)
+            isCoachTyping = true
+            
+            // Start audio stream if voice-over is enabled
+            if voiceOverEnabled {
+                audioStreamPlayer.startSession()
+            }
         }
         
         do {
-            print("🚀 Starting voice chat stream for session: \(sessionID)")
+            print("🚀 Starting voice chat stream for session: \(sessionID), voice-over: \(voiceOverEnabled)")
             let stream = apiClient.streamVoiceChat(
                 sessionID: sessionID,
                 audioData: audioData,
                 text: nil,
-                attachments: nil
+                attachments: nil,
+                voiceOverEnabled: voiceOverEnabled
             )
             
             // Reload messages after stream completes to get the saved messages with attachments
             // Don't reload during streaming - wait until done
+            
+            var hasReceivedFirstDelta = false
             
             for try await event in stream {
                 if Task.isCancelled {
@@ -868,16 +882,50 @@ final class ChatViewModel: ObservableObject {
                     
                 case .messageDelta(let payload):
                     print("📝 Voice message delta: \(payload.delta)")
-                    await MainActor.run {
-                        assistantText += payload.delta
-                        if let index = messages.firstIndex(where: { $0.id == assistantID }) {
-                            messages[index] = Message(
+                    
+                    // On first delta, hide typing indicator and add message
+                    if !hasReceivedFirstDelta {
+                        hasReceivedFirstDelta = true
+                        await MainActor.run {
+                            isCoachTyping = false
+                            
+                            // Add the message bubble now
+                            let placeholderMessage = Message(
                                 id: assistantID,
                                 role: "assistant",
-                                contentText: assistantText,
+                                contentText: payload.delta,
                                 attachments: nil,
                                 createdAt: Date()
                             )
+                            messages.append(placeholderMessage)
+                            assistantText = payload.delta
+                        }
+                    } else {
+                        // Update existing message
+                        await MainActor.run {
+                            assistantText += payload.delta
+                            if let index = messages.firstIndex(where: { $0.id == assistantID }) {
+                                messages[index] = Message(
+                                    id: assistantID,
+                                    role: "assistant",
+                                    contentText: assistantText,
+                                    attachments: nil,
+                                    createdAt: Date()
+                                )
+                            }
+                        }
+                    }
+                
+                case .audioChunk(let payload):
+                    print("🎵 Audio chunk received: \(payload.audio.prefix(50))... isFinal: \(payload.isFinal)")
+                    // Enqueue audio for playback
+                    await MainActor.run {
+                        if !payload.isFinal && !payload.audio.isEmpty {
+                            audioStreamPlayer.enqueueAudioChunk(payload.audio)
+                        } else if payload.isFinal {
+                            // Final audio chunk - mark as complete
+                            audioStreamPlayer.markFinalChunk()
+                            print("🎵 Marked final audio chunk - playback will stop when buffers complete")
                         }
                     }
                     
@@ -929,6 +977,7 @@ final class ChatViewModel: ObservableObject {
             await MainActor.run {
                 isStreaming = false
                 isVoiceMode = false
+                isCoachTyping = false
             }
             
             // CRITICAL: Reload messages to get the saved messages with audio attachments
@@ -951,6 +1000,7 @@ final class ChatViewModel: ObservableObject {
                 messages.removeAll { $0.id == assistantID }
                 isStreaming = false
                 isVoiceMode = false
+                isCoachTyping = false
             }
         }
     }

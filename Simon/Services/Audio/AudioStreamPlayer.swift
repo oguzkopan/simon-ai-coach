@@ -2,9 +2,7 @@ import Foundation
 import AVFoundation
 import Combine
 
-#if os(iOS)
-/// AudioStreamPlayer handles real-time streaming audio playback
-/// Decodes base64 MP3 chunks and plays them sequentially with minimal latency
+
 @MainActor
 class AudioStreamPlayer: ObservableObject {
     @Published var isPlaying = false
@@ -32,9 +30,9 @@ class AudioStreamPlayer: ObservableObject {
     
     /// Start a new streaming session
     func startSession() {
-        print("🎵 Starting audio stream session")
+        print("🎵 Starting new audio session")
         audioQueue.removeAll()
-        isPlaying = true
+        isPlaying = false
         error = nil
         
         // Setup audio engine
@@ -47,7 +45,10 @@ class AudioStreamPlayer: ObservableObject {
         }
         
         engine.attach(player)
-        engine.connect(player, to: engine.mainMixerNode, format: nil)
+        
+        // Use a standard format that matches typical MP3 output
+        let format = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 2)
+        engine.connect(player, to: engine.mainMixerNode, format: format)
         
         do {
             try engine.start()
@@ -72,15 +73,28 @@ class AudioStreamPlayer: ObservableObject {
         print("🎵 Enqueued audio chunk: \(audioData.count) bytes")
         audioQueue.append(audioData)
         
+        // Set isPlaying when first chunk arrives
+        if !isPlaying {
+            isPlaying = true
+            print("🔊 Audio playback started (first chunk received)")
+        }
+        
         // Process queue if not already processing
         if !isProcessing {
             processQueue()
         }
     }
     
+    /// Mark that the final audio chunk has been received
+    func markFinalChunk() {
+        print("🎵 Final audio marker received - stopping playback indicator")
+        isPlaying = false
+    }
+    
     private func processQueue() {
         guard !audioQueue.isEmpty else {
             isProcessing = false
+            print("🎵 Audio queue empty, processing complete")
             return
         }
         
@@ -91,13 +105,12 @@ class AudioStreamPlayer: ObservableObject {
         
         // Play the chunk
         playAudioData(audioData) { [weak self] in
-            // Continue processing queue
             self?.processQueue()
         }
     }
     
     private func playAudioData(_ data: Data, completion: @escaping () -> Void) {
-        guard let player = playerNode else {
+        guard let player = playerNode, let engine = audioEngine else {
             completion()
             return
         }
@@ -112,27 +125,94 @@ class AudioStreamPlayer: ObservableObject {
             
             // Load audio file
             let audioFile = try AVAudioFile(forReading: tempURL)
-            let buffer = AVAudioPCMBuffer(
-                pcmFormat: audioFile.processingFormat,
-                frameCapacity: AVAudioFrameCount(audioFile.length)
-            )
             
-            guard let buffer = buffer else {
-                try? FileManager.default.removeItem(at: tempURL)
-                completion()
-                return
+            // Get the engine's output format
+            let outputFormat = engine.mainMixerNode.outputFormat(forBus: 0)
+            
+            // Create converter if formats don't match
+            let needsConversion = audioFile.processingFormat.sampleRate != outputFormat.sampleRate ||
+                                 audioFile.processingFormat.channelCount != outputFormat.channelCount
+            
+            if needsConversion {
+                
+                // Read entire file into buffer
+                let frameCount = AVAudioFrameCount(audioFile.length)
+                guard let inputBuffer = AVAudioPCMBuffer(
+                    pcmFormat: audioFile.processingFormat,
+                    frameCapacity: frameCount
+                ) else {
+                    print("❌ Failed to create input buffer")
+                    try? FileManager.default.removeItem(at: tempURL)
+                    completion()
+                    return
+                }
+                
+                try audioFile.read(into: inputBuffer)
+                
+                // Create output buffer with engine format
+                let outputFrameCapacity = AVAudioFrameCount(
+                    Double(inputBuffer.frameLength) * outputFormat.sampleRate / audioFile.processingFormat.sampleRate
+                )
+                
+                guard let outputBuffer = AVAudioPCMBuffer(
+                    pcmFormat: outputFormat,
+                    frameCapacity: outputFrameCapacity
+                ) else {
+                    print("❌ Failed to create output buffer")
+                    try? FileManager.default.removeItem(at: tempURL)
+                    completion()
+                    return
+                }
+                
+                // Convert
+                guard let converter = AVAudioConverter(from: audioFile.processingFormat, to: outputFormat) else {
+                    print("❌ Failed to create audio converter")
+                    try? FileManager.default.removeItem(at: tempURL)
+                    completion()
+                    return
+                }
+                
+                var error: NSError?
+                let inputBlock: AVAudioConverterInputBlock = { inNumPackets, outStatus in
+                    outStatus.pointee = .haveData
+                    return inputBuffer
+                }
+                
+                converter.convert(to: outputBuffer, error: &error, withInputFrom: inputBlock)
+                
+                if let error = error {
+                    print("❌ Conversion error: \(error)")
+                    try? FileManager.default.removeItem(at: tempURL)
+                    completion()
+                    return
+                }
+                
+                // Schedule converted buffer
+                player.scheduleBuffer(outputBuffer) {
+                    try? FileManager.default.removeItem(at: tempURL)
+                    completion()
+                }
+            } else {
+                // No conversion needed - use original format
+                let buffer = AVAudioPCMBuffer(
+                    pcmFormat: audioFile.processingFormat,
+                    frameCapacity: AVAudioFrameCount(audioFile.length)
+                )
+                
+                guard let buffer = buffer else {
+                    try? FileManager.default.removeItem(at: tempURL)
+                    completion()
+                    return
+                }
+                
+                try audioFile.read(into: buffer)
+                
+                // Schedule buffer for playback
+                player.scheduleBuffer(buffer) {
+                    try? FileManager.default.removeItem(at: tempURL)
+                    completion()
+                }
             }
-            
-            try audioFile.read(into: buffer)
-            
-            // Schedule buffer for playback
-            player.scheduleBuffer(buffer) {
-                // Clean up temp file
-                try? FileManager.default.removeItem(at: tempURL)
-                completion()
-            }
-            
-            print("✅ Scheduled audio buffer: \(buffer.frameLength) frames")
             
         } catch {
             print("❌ Failed to play audio chunk: \(error)")
@@ -143,8 +223,7 @@ class AudioStreamPlayer: ObservableObject {
     
     /// End the streaming session
     func endSession() {
-        print("🎵 Ending audio stream session")
-        
+        print("🎵 Ending audio session")
         playerNode?.stop()
         audioEngine?.stop()
         
@@ -160,16 +239,3 @@ class AudioStreamPlayer: ObservableObject {
         endSession()
     }
 }
-#else
-// Stub for non-iOS platforms
-@MainActor
-class AudioStreamPlayer: ObservableObject {
-    @Published var isPlaying = false
-    @Published var error: String?
-    
-    func startSession() {}
-    func enqueueAudioChunk(_ base64Audio: String) {}
-    func endSession() {}
-    func stop() {}
-}
-#endif

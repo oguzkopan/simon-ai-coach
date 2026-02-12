@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -192,7 +193,7 @@ func (c *Client) NewStreamingSession(voiceID string, settings *VoiceSettings) (*
 	}
 
 	url := fmt.Sprintf("%s/text-to-speech/%s/stream-input?model_id=%s", 
-		WebSocketURL, voiceID, LatestTurboModel)
+		WebSocketURL, voiceID, LatestFlashModel)
 
 	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
@@ -202,23 +203,23 @@ func (c *Client) NewStreamingSession(voiceID string, settings *VoiceSettings) (*
 	session := &StreamingSession{
 		conn:          conn,
 		voiceID:       voiceID,
-		modelID:       LatestTurboModel,
+		modelID:       LatestFlashModel,
 		voiceSettings: settings,
 		AudioChan:     make(chan []byte, 100),
 		ErrorChan:     make(chan error, 10),
 		done:          make(chan struct{}),
 	}
 
-	// Send initial configuration with API key
+	// Send initial configuration
 	initMsg := map[string]interface{}{
-		"text":       " ", // Start with empty space to keep connection alive
+		"text":       " ",
 		"xi_api_key": c.apiKey,
 		"voice_settings": map[string]interface{}{
 			"stability":        settings.Stability,
 			"similarity_boost": settings.SimilarityBoost,
 		},
 		"generation_config": map[string]interface{}{
-			"chunk_length_schedule": []int{50, 120, 160, 250}, // Lower first threshold for faster response
+			"chunk_length_schedule": []int{50, 120, 160, 250},
 		},
 	}
 
@@ -245,7 +246,7 @@ func (s *StreamingSession) SendText(text string) error {
 func (s *StreamingSession) SendEOS() error {
 	msg := map[string]interface{}{
 		"text":  "",
-		"flush": true, // Flush remaining audio
+		"flush": true,
 	}
 	return s.conn.WriteJSON(msg)
 }
@@ -263,21 +264,26 @@ func (s *StreamingSession) readLoop() {
 			var response map[string]interface{}
 			err := s.conn.ReadJSON(&response)
 			if err != nil {
-				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-					s.ErrorChan <- fmt.Errorf("WebSocket error: %w", err)
+				// Don't treat timeout as error - it's expected when stream ends
+				if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+					if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+						s.ErrorChan <- fmt.Errorf("WebSocket error: %w", err)
+					}
 				}
 				return
 			}
 
 			// Check for audio data (base64 encoded)
 			if audioBase64, ok := response["audio"].(string); ok && audioBase64 != "" {
-				// Send the base64 string as-is (client will decode it)
 				s.AudioChan <- []byte(audioBase64)
 			}
 
-			// Check for errors
+			// Check for errors (but don't fail on timeout - it's expected)
 			if errMsg, ok := response["error"].(string); ok {
-				s.ErrorChan <- fmt.Errorf("API error: %s", errMsg)
+				// Only send error if it's not a timeout
+				if !strings.Contains(errMsg, "timeout") {
+					s.ErrorChan <- fmt.Errorf("API error: %s", errMsg)
+				}
 			}
 
 			// Check for completion

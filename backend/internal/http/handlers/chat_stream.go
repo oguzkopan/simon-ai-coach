@@ -185,12 +185,17 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 		var coachVoiceConfig *models.VoiceConfig
 		var selectedCoachName string
 		
-		if session.CoachID != nil {
-			coachID = *session.CoachID
+		// Check if coach is already assigned (either by ID or by name for dynamic coaches)
+		hasCoach := session.CoachID != nil || session.CoachName != ""
+		
+		if hasCoach {
+			if session.CoachID != nil {
+				coachID = *session.CoachID
+			}
 			selectedCoachName = session.CoachName
 
 			// Fetch coach to get voice configuration if voice-over is enabled
-			if req.VoiceOverEnabled {
+			if req.VoiceOverEnabled && coachID != "" {
 				log.Printf("🎙️ Voice-over requested for coach: %s", coachID)
 				coachDoc, err := fs.DB.Collection("coaches").Doc(coachID).Get(ctx)
 				if err != nil {
@@ -202,9 +207,14 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 					} else {
 						log.Printf("🎙️ Coach loaded: has_spec=%v", coach.CoachSpec != nil)
 						if coach.CoachSpec != nil && coach.CoachSpec.Voice != nil {
-							log.Printf("🎙️ CoachSpec.Voice: %+v", coach.CoachSpec.Voice)
+							log.Printf("🎙️ CoachSpec.Voice found: ID=%s, Enabled=%v, Stability=%.2f, Similarity=%.2f", 
+								coach.CoachSpec.Voice.VoiceID, 
+								coach.CoachSpec.Voice.Enabled,
+								coach.CoachSpec.Voice.Stability,
+								coach.CoachSpec.Voice.Similarity)
 							coachVoiceConfig = coach.CoachSpec.Voice
-							log.Printf("🎙️ Using coach-specific voice: ID=%s, Enabled=%v", coachVoiceConfig.VoiceID, coachVoiceConfig.Enabled)
+						} else {
+							log.Printf("⚠️ Coach has no voice config in CoachSpec")
 						}
 					}
 				}
@@ -221,8 +231,24 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 						Style:      0.0,
 						PresetName: "Balanced",
 					}
+				} else {
+					log.Printf("✅ Voice config loaded successfully: ID=%s, Enabled=%v", 
+						coachVoiceConfig.VoiceID, coachVoiceConfig.Enabled)
+				}
+			} else {
+				if !req.VoiceOverEnabled {
+					log.Printf("ℹ️ Voice-over not requested by client")
+				} else {
+					log.Printf("⚠️ Voice-over requested but no coach ID available")
 				}
 			}
+			
+			// Send stream.open without coach_selecting flag
+			sse.Event(c.Writer, "stream.open", map[string]interface{}{
+				"session_id":      sessionID,
+				"server_time_iso": time.Now().Format(time.RFC3339),
+			})
+			flusher.Flush()
 		} else {
 			// No coach assigned yet - perform coach selection now
 			log.Printf("🔍 Performing coach selection for session: %s", sessionID)
@@ -384,17 +410,26 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 		}
 
 		// Check if voice-over streaming is enabled
-		if req.VoiceOverEnabled && coachVoiceConfig != nil {
+		if req.VoiceOverEnabled && coachVoiceConfig != nil && coachVoiceConfig.Enabled {
 			log.Printf("🎙️ Starting voice-over streaming with voice: %s (enabled=%v)", 
 				coachVoiceConfig.VoiceID, coachVoiceConfig.Enabled)
 			voiceOrchestrator := NewVoiceStreamOrchestrator(cfg)
-			if err := voiceOrchestrator.StreamWithVoice(c, fs, output, coachVoiceConfig, flusher.Flush); err != nil {
+			if err := voiceOrchestrator.StreamWithVoice(c, fs, output, coachVoiceConfig, sessionID, flusher.Flush); err != nil {
 				log.Printf("❌ Voice streaming error: %v", err)
 				// Fall back to regular streaming on error
 			} else {
 				// Voice streaming completed successfully
 				log.Printf("✅ Voice-over streaming completed successfully")
 				return
+			}
+		} else {
+			// Log why voice-over is not being used
+			if !req.VoiceOverEnabled {
+				log.Printf("ℹ️ Voice-over not requested by client")
+			} else if coachVoiceConfig == nil {
+				log.Printf("⚠️ Voice-over requested but coach voice config is nil")
+			} else if !coachVoiceConfig.Enabled {
+				log.Printf("⚠️ Voice-over requested but coach voice config is disabled")
 			}
 		}
 
