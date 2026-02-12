@@ -127,10 +127,13 @@ backend/.env.*
 # Shell scripts
 *.sh
 
-# Markdown Documentation (except README)
+# Markdown Documentation (except README and docs/)
 *.md
 !README.md
 !**/README.md
+!docs/*.md
+!LICENSE
+!DOCUMENTATION_COMPLETE.md
 
 # Kiro IDE
 .kiro/
