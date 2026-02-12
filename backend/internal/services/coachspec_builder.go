@@ -98,7 +98,7 @@ func (b *CoachSpecBuilder) Build(name, tagline string) *models.CoachSpec {
 
 	// Use LLM-powered generation if available
 	if b.useLLM && b.geminiClient != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 		defer cancel()
 		
 		spec, err := b.buildWithLLM(ctx, name, tagline)

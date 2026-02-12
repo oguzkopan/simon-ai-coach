@@ -85,7 +85,7 @@ final class SimonAPIClient: SimonAPI {
         self.baseURL = baseURL
         
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForRequest = 120  // Increased for LLM generation (90s backend + buffer)
         config.timeoutIntervalForResource = 300
         self.session = URLSession(configuration: config)
     }

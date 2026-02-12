@@ -105,6 +105,11 @@ struct MomentView: View {
                     coachName: coachName,
                     initialPrompt: vm.createdInitialPrompt
                 ))
+                .onAppear {
+                    // Clean up moment view state after navigation completes
+                    print("✅ ChatView appeared, cleaning up MomentView state")
+                    vm.cleanupAfterNavigation()
+                }
             } else {
                 let _ = print("❌ Navigation destination triggered but missing session info")
                 Text("Error: Missing session information")
@@ -117,6 +122,12 @@ struct MomentView: View {
             async let progress: Void = vm.loadProgressDocuments()
             
             _ = await (moments, routines, events, progress)
+        }
+        .onAppear {
+            // Reset navigation state when returning to MomentView
+            if vm.navigateToChat {
+                vm.resetForNewMoment()
+            }
         }
     }
     

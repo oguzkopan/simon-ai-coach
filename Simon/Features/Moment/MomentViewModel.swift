@@ -419,6 +419,9 @@ final class MomentViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
             createdInitialPrompt = prompt // Pass the prompt to trigger streaming
             navigateToChat = true
             
+            // Reset loading state after navigation is triggered
+            isLoading = false
+            
             // Reset form
             freeformInput = ""
             selectedTemplate = nil
@@ -519,6 +522,7 @@ final class MomentViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
         print("🎤 ChatViewModel voiceOverEnabled set to: \(chatVM.voiceOverEnabled)")
         
         // If we have pending voice data, send it after chat loads
+        // IMPORTANT: Don't modify @Published properties here - it causes infinite loop
         if let voiceData = pendingVoiceData {
             Task {
                 // Wait a moment for chat to initialize
@@ -527,20 +531,37 @@ final class MomentViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 // Send the voice message
                 await chatVM.sendVoiceMessageFromMoment(voiceData)
                 
-                // Clear pending data and cleanup
-                await MainActor.run {
-                    self.pendingVoiceData = nil
-                    self.isLoading = false
-                    self.deleteRecordedAudio() // Clean up the recording UI
-                    print("✅ Voice data sent and cleaned up")
-                }
+                print("✅ Voice data sent to chat")
             }
-        } else {
-            // No pending voice data, just reset loading state
-            isLoading = false
         }
         
         return chatVM
+    }
+    
+    func cleanupAfterNavigation() {
+        // Clean up state after navigation completes
+        // DON'T reset navigateToChat here - let it stay true so navigation persists
+        Task { @MainActor in
+            // Small delay to ensure navigation is complete
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+            
+            // Only cleanup audio and pending data, keep navigation state
+            pendingVoiceData = nil
+            deleteRecordedAudio()
+            
+            print("🧹 MomentView audio cleaned up after navigation")
+        }
+    }
+    
+    func resetForNewMoment() {
+        // Call this when user explicitly goes back to MomentView
+        navigateToChat = false
+        createdSessionId = nil
+        createdCoachName = nil
+        createdInitialPrompt = nil
+        isLoading = false
+        
+        print("🔄 MomentView reset for new moment")
     }
     
     // MARK: - Voice Input

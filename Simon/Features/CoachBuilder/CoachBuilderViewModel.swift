@@ -136,6 +136,9 @@ final class CoachBuilderViewModel: ObservableObject {
     func createCoach() {
         guard canCreate else { return }
         
+        // Prevent duplicate submissions
+        guard !isCreating else { return }
+        
         isCreating = true
         errorMessage = nil
         
@@ -164,9 +167,10 @@ final class CoachBuilderViewModel: ObservableObject {
                 errorMessage = error.localizedDescription
                 showError = true
                 HapticManager.shared.error()
+                isCreating = false  // Re-enable on error
             }
             
-            isCreating = false
+            // Don't reset isCreating on success - prevents double creation
         }
     }
     

@@ -155,6 +155,12 @@ final class ChatViewModel: ObservableObject {
         print("📊 Message count loaded: \(count)/3, remaining: \(remainingMessages), isPro: \(isPro)")
     }
     
+    // Update purchases service reference (called when subscription status changes)
+    func updatePurchasesService(_ service: PurchasesService) {
+        self.purchasesService = service
+        loadMessageCount()
+    }
+    
     // Increment message count for unsubscribed users
     private func incrementMessageCount() {
         guard let isPro = purchasesService?.isPro, !isPro else {

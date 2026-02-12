@@ -546,8 +546,11 @@ struct ChatView: View {
                 sessionID: viewModel.sessionID
             )
             
-            // Load message count
-            viewModel.loadMessageCount()
+            // Ensure we have fresh subscription status
+            await purchases.loadCustomerInfo()
+            
+            // Update view model with current purchases service
+            viewModel.updatePurchasesService(purchases)
             
             if viewModel.messages.isEmpty && !viewModel.isLoadingMessages {
                 print("🟢 Calling loadMessages()")
@@ -557,7 +560,7 @@ struct ChatView: View {
         .onChange(of: purchases.isPro) { _, newValue in
             // Reload message count when subscription status changes
             print("📊 Subscription status changed: isPro = \(newValue)")
-            viewModel.loadMessageCount()
+            viewModel.updatePurchasesService(purchases)
         }
         .fullScreenCover(isPresented: $showPaywall) {
             PaywallView(

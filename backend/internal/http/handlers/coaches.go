@@ -257,7 +257,7 @@ func CreateCoach(fs *fsClient.Client, gm *gemini.Client) gin.HandlerFunc {
 		coach := models.Coach{
 			ID:         uuid.New().String(),
 			OwnerUID:   uid,
-			Visibility: "private", // Default to private
+			Visibility: "public", // Default to public so coaches appear in browse
 			Title:      req.Title,
 			Promise:    req.Promise,
 			Tags:       req.Tags,
@@ -294,32 +294,42 @@ func generateRichTagsWithLLM(ctx context.Context, gm *gemini.Client, specialty, 
 Given this coach:
 - Title: %s
 - Specialty: %s
+- Tagline: %s
 - Problem Statements: %v
 - Outcomes: %v
 - Frameworks: %v
+- Audience: %v
 
-Generate 4-6 highly relevant, specific tags that describe what this coach helps with.
+Generate 5-8 highly relevant, specific tags that describe what this coach helps with.
 
 Requirements:
-- Tags should be lowercase, underscore-separated (e.g., "time_management")
+- Tags should be lowercase, single words or short phrases (e.g., "time_management", "wellness", "productivity")
 - Include the specialty as the first tag
 - Be specific and actionable (e.g., "decision_making" not just "decisions")
-- Focus on what users will search for
+- Focus on what users will search for (skills, topics, outcomes)
+- Include both broad categories and specific niches
 - Avoid generic tags like "coaching" or "help"
+- Mix of: skill areas, problem domains, outcomes, and methodologies
 
-Return ONLY a JSON array of strings, nothing else.
-Example: ["finance", "budgeting", "investing", "wealth_building", "money_management"]`, 
+Examples:
+- For a productivity coach: ["productivity", "time_management", "focus", "habits", "systems", "goal_setting"]
+- For a wellness coach: ["wellness", "fitness", "nutrition", "health", "habits", "energy", "mindfulness"]
+- For a career coach: ["career", "leadership", "professional_growth", "communication", "strategy", "decision_making"]
+
+Return ONLY a JSON array of strings, nothing else.`, 
 		title, 
 		specialty,
-		getFirstN(spec.Identity.ProblemStatements, 3),
-		getFirstN(spec.Identity.Outcomes, 3),
-		getFrameworkNames(spec.Methods.Frameworks))
+		spec.Identity.Tagline,
+		getFirstN(spec.Identity.ProblemStatements, 4),
+		getFirstN(spec.Identity.Outcomes, 4),
+		getFrameworkNames(spec.Methods.Frameworks),
+		getFirstN(spec.Identity.Audience, 3))
 
 	// Use Gemini to generate tags
-	temperature := float32(0.3) // Lower temperature for more consistent output
+	temperature := float32(0.4) // Slightly higher for more creative tags
 	config := &genai.GenerateContentConfig{
 		Temperature:      &temperature,
-		MaxOutputTokens:  200,
+		MaxOutputTokens:  300,
 		ResponseMIMEType: "application/json",
 	}
 
@@ -358,9 +368,21 @@ Example: ["finance", "budgeting", "investing", "wealth_building", "money_managem
 		tags = []string{specialty}
 	}
 
-	// Limit to 6 tags max
-	if len(tags) > 6 {
-		tags = tags[:6]
+	// Ensure specialty is first if not already
+	hasSpecialty := false
+	for _, tag := range tags {
+		if tag == specialty {
+			hasSpecialty = true
+			break
+		}
+	}
+	if !hasSpecialty {
+		tags = append([]string{specialty}, tags...)
+	}
+
+	// Limit to 8 tags max
+	if len(tags) > 8 {
+		tags = tags[:8]
 	}
 
 	log.Printf("Generated %d tags with LLM: %v", len(tags), tags)
@@ -499,6 +521,12 @@ func UpdateCoach(fs *fsClient.Client) gin.HandlerFunc {
 		}
 		if req.CoachSpec != nil {
 			updates = append(updates, firestore.Update{Path: "coachSpec", Value: req.CoachSpec})
+		}
+		if req.Visibility != "" {
+			// Validate visibility value
+			if req.Visibility == "public" || req.Visibility == "private" {
+				updates = append(updates, firestore.Update{Path: "visibility", Value: req.Visibility})
+			}
 		}
 
 		// Apply updates
