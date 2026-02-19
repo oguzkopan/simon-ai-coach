@@ -7,6 +7,9 @@ struct Session: Identifiable, Codable, Equatable {
     let coachName: String?
     let title: String
     let mode: String
+    let messageCount: Int?
+    let userMessageCount: Int?
+    let contextEnabled: Bool?
     let createdAt: Date
     let updatedAt: Date
     
@@ -17,6 +20,9 @@ struct Session: Identifiable, Codable, Equatable {
         case coachName = "coach_name"
         case title
         case mode
+        case messageCount = "message_count"
+        case userMessageCount = "user_message_count"
+        case contextEnabled = "context_enabled"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }

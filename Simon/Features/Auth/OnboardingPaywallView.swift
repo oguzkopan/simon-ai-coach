@@ -1,14 +1,14 @@
 //
-//  PaywallView.swift
+//  OnboardingPaywallView.swift
 //  Simon
 //
-//  Created on 2026-01-19.
+//  Created on 2026-02-19.
 //
 
 import SwiftUI
 import RevenueCat
 
-struct PaywallView: View {
+struct OnboardingPaywallView: View {
     @EnvironmentObject private var theme: ThemeStore
     @EnvironmentObject private var purchases: PurchasesService
     
@@ -23,7 +23,7 @@ struct PaywallView: View {
     
     var body: some View {
         ZStack {
-            // Background gradient
+            // Background with gradient
             LinearGradient(
                 colors: [
                     theme.accentPrimary.opacity(0.12),
@@ -35,221 +35,173 @@ struct PaywallView: View {
             )
             .ignoresSafeArea()
             
-            NavigationStack {
-                VStack(spacing: 0) {
-                    Spacer()
-                        .frame(height: 40)
+            VStack(spacing: 0) {
+                Spacer()
+                    .frame(height: 60)
+                
+                // Crown icon with glow effect
+                ZStack {
+                    Circle()
+                        .fill(
+                            RadialGradient(
+                                colors: [
+                                    theme.accentPrimary.opacity(0.3),
+                                    theme.accentPrimary.opacity(0.1),
+                                    Color.clear
+                                ],
+                                center: .center,
+                                startRadius: 20,
+                                endRadius: 60
+                            )
+                        )
+                        .frame(width: 120, height: 120)
                     
-                    // Crown icon with glow effect
                     ZStack {
                         Circle()
                             .fill(
-                                RadialGradient(
-                                    colors: [
-                                        theme.accentPrimary.opacity(0.3),
-                                        theme.accentPrimary.opacity(0.1),
-                                        Color.clear
-                                    ],
-                                    center: .center,
-                                    startRadius: 20,
-                                    endRadius: 60
+                                LinearGradient(
+                                    colors: [theme.accentPrimary, theme.accentPrimary.opacity(0.8)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
                                 )
                             )
-                            .frame(width: 120, height: 120)
+                            .frame(width: 72, height: 72)
+                            .shadow(color: theme.accentPrimary.opacity(0.4), radius: 16, y: 6)
                         
-                        ZStack {
-                            Circle()
-                                .fill(
-                                    LinearGradient(
-                                        colors: [theme.accentPrimary, theme.accentPrimary.opacity(0.8)],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                                .frame(width: 72, height: 72)
-                                .shadow(color: theme.accentPrimary.opacity(0.4), radius: 16, y: 6)
-                            
-                            Image(systemName: "star.fill")
-                                .font(.system(size: 32, weight: .bold))
-                                .foregroundColor(.white)
-                        }
+                        Image(systemName: "crown.fill")
+                            .font(.system(size: 32, weight: .bold))
+                            .foregroundColor(.white)
                     }
+                }
+                
+                // Title
+                VStack(spacing: 6) {
+                    Text("Unlock Simon Pro")
+                        .font(theme.font(28, weight: .bold))
+                        .foregroundColor(.primary)
                     
-                    // Title
-                    VStack(spacing: 6) {
-                        Text("Upgrade to Pro")
-                            .font(theme.font(28, weight: .bold))
-                            .foregroundColor(.primary)
-                        
-                        Text("Build systems that stick")
-                            .font(theme.font(16))
+                    Text("Build systems that stick")
+                        .font(theme.font(16))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.top, 20)
+                
+                Spacer()
+                    .frame(height: 32)
+                
+                // Features - compact horizontal layout
+                HStack(spacing: 12) {
+                    CompactFeature(icon: "infinity", title: "Unlimited\nMessages", color: .blue)
+                    CompactFeature(icon: "square.and.arrow.up", title: "Publish\nCoaches", color: .purple)
+                    CompactFeature(icon: "arrow.triangle.2.circlepath", title: "Advanced\nSystems", color: .orange)
+                }
+                .padding(.horizontal, 20)
+                
+                Spacer()
+                    .frame(height: 32)
+                
+                // Pricing section
+                if isLoading {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                            .scaleEffect(1.2)
+                            .tint(theme.accentPrimary)
+                        Text("Loading plans...")
+                            .font(theme.font(14))
                             .foregroundColor(.secondary)
                     }
-                    .padding(.top, 20)
-                    
-                    Spacer()
-                        .frame(height: 32)
-                    
-                    // Features - compact horizontal layout
-                    HStack(spacing: 12) {
-                        CompactFeatureItem(icon: "infinity", title: "Unlimited\nMessages", color: .blue)
-                        CompactFeatureItem(icon: "square.and.arrow.up", title: "Publish\nCoaches", color: .purple)
-                        CompactFeatureItem(icon: "arrow.triangle.2.circlepath", title: "Advanced\nSystems", color: .orange)
-                    }
-                    .padding(.horizontal, 20)
-                    
-                    Spacer()
-                        .frame(height: 32)
-                    
-                    // Product offerings
-                    if isLoading {
-                        VStack(spacing: 12) {
-                            ProgressView()
-                                .scaleEffect(1.2)
-                                .tint(theme.accentPrimary)
-                            Text("Loading plans...")
-                                .font(theme.font(14))
-                                .foregroundColor(.secondary)
-                        }
-                        .frame(height: 180)
-                    } else if let errorMessage = errorMessage {
-                        VStack(spacing: 16) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.system(size: 36))
-                                .foregroundColor(.orange)
-                            
-                            Text(errorMessage)
-                                .font(theme.font(14))
-                                .foregroundColor(.secondary)
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal, 32)
-                            
-                            Button(action: {
-                                Task {
-                                    await loadOfferings()
-                                }
-                            }) {
-                                Text("Retry")
-                                    .font(theme.font(16, weight: .semibold))
-                                    .foregroundColor(.white)
-                                    .frame(width: 120, height: 44)
-                                    .background(theme.accentPrimary)
-                                    .cornerRadius(22)
-                            }
-                        }
-                        .frame(height: 180)
-                    } else if let offerings = offerings, let packages = offerings.current?.availablePackages, !packages.isEmpty {
-                        VStack(spacing: 12) {
-                            ForEach(packages, id: \.identifier) { package in
-                                CompactProductItem(
-                                    package: package,
-                                    isSelected: selectedPackage?.identifier == package.identifier,
-                                    isPurchasing: isPurchasing && selectedPackage?.identifier == package.identifier,
-                                    onTap: {
-                                        selectedPackage = package
-                                        Task {
-                                            await purchase(package)
-                                        }
-                                    },
-                                    allPackages: packages
-                                )
-                            }
-                        }
-                        .padding(.horizontal, 20)
-                    } else {
-                        VStack(spacing: 16) {
-                            Button(action: {
-                                Task {
-                                    await purchase(nil)
-                                }
-                            }) {
-                                HStack {
-                                    if isPurchasing {
-                                        ProgressView()
-                                            .tint(.white)
-                                    } else {
-                                        Text("Start Pro")
-                                            .font(theme.font(18, weight: .semibold))
-                                    }
-                                }
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 56)
-                                .background(
-                                    LinearGradient(
-                                        colors: [theme.accentPrimary, theme.accentPrimary.opacity(0.8)],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    )
-                                )
-                                .foregroundColor(.white)
-                                .cornerRadius(16)
-                                .shadow(color: theme.accentPrimary.opacity(0.3), radius: 8, y: 4)
-                            }
-                            .disabled(isPurchasing)
-                        }
-                        .padding(.horizontal, 20)
-                    }
-                    
-                    Spacer()
-                    
-                    // Bottom buttons
-                    VStack(spacing: 12) {
+                    .frame(height: 180)
+                } else if let errorMessage = errorMessage {
+                    VStack(spacing: 16) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 36))
+                            .foregroundColor(.orange)
+                        
+                        Text(errorMessage)
+                            .font(theme.font(14))
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 32)
+                        
                         Button(action: {
                             Task {
-                                await restorePurchases()
+                                await loadOfferings()
                             }
                         }) {
-                            Text("Restore Purchases")
-                                .font(theme.font(14))
-                                .foregroundColor(.secondary)
+                            Text("Try Again")
+                                .font(theme.font(16, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(width: 120, height: 44)
+                                .background(theme.accentPrimary)
+                                .cornerRadius(22)
                         }
+                    }
+                    .frame(height: 180)
+                } else if let offerings = offerings,
+                          let packages = offerings.current?.availablePackages,
+                          !packages.isEmpty {
+                    VStack(spacing: 12) {
+                        ForEach(packages, id: \.identifier) { package in
+                            CompactProductCard(
+                                package: package,
+                                isSelected: selectedPackage?.identifier == package.identifier,
+                                isPurchasing: isPurchasing && selectedPackage?.identifier == package.identifier,
+                                onTap: {
+                                    selectedPackage = package
+                                    Task {
+                                        await purchase(package)
+                                    }
+                                },
+                                allPackages: packages
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                }
+                
+                Spacer()
+                
+                // Bottom buttons
+                VStack(spacing: 12) {
+                    Button(action: {
+                        Task {
+                            await restorePurchases()
+                        }
+                    }) {
+                        Text("Restore Purchases")
+                            .font(theme.font(14))
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    Button(action: onDismiss) {
+                        Text("Maybe later")
+                            .font(theme.font(15))
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    // Privacy & Terms links
+                    HStack(spacing: 4) {
+                        Link("Privacy", destination: URL(string: "https://simon-7a833.web.app/privacy/")!)
+                            .font(theme.font(11))
+                            .foregroundColor(.secondary)
                         
-                        Button(action: onDismiss) {
-                            Text("Not now")
-                                .font(theme.font(15))
-                                .foregroundColor(.secondary)
-                        }
+                        Text("•")
+                            .font(theme.font(11))
+                            .foregroundColor(.secondary)
                         
-                        // Privacy & Terms links
-                        HStack(spacing: 4) {
-                            Link("Privacy", destination: URL(string: "https://simon-7a833.web.app/privacy/")!)
-                                .font(theme.font(11))
-                                .foregroundColor(.secondary)
-                            
-                            Text("•")
-                                .font(theme.font(11))
-                                .foregroundColor(.secondary)
-                            
-                            Link("Terms", destination: URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!)
-                                .font(theme.font(11))
-                                .foregroundColor(.secondary)
-                        }
-                        .padding(.top, 4)
+                        Link("Terms", destination: URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!)
+                            .font(theme.font(11))
+                            .foregroundColor(.secondary)
                     }
-                    .padding(.bottom, 40)
+                    .padding(.top, 4)
                 }
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button(action: onDismiss) {
-                            ZStack {
-                                Circle()
-                                    .fill(Color(.systemGray5))
-                                    .frame(width: 32, height: 32)
-                                
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                    }
-                }
-                .onAppear {
-                    AnalyticsManager.shared.logPaywallViewed()
-                    Task {
-                        await loadOfferings()
-                    }
-                }
+                .padding(.bottom, 40)
+            }
+        }
+        .onAppear {
+            AnalyticsManager.shared.logPaywallViewed()
+            Task {
+                await loadOfferings()
             }
         }
     }
@@ -259,21 +211,13 @@ struct PaywallView: View {
         errorMessage = nil
         
         do {
-            // Try to load offerings
             let loadedOfferings = try await Purchases.shared.offerings()
             offerings = loadedOfferings
             
-            print("✅ Loaded offerings: \(offerings?.current?.availablePackages.count ?? 0) packages")
-            
-            // If no packages available, show a helpful message
             if offerings?.current?.availablePackages.isEmpty ?? true {
-                print("⚠️ No products found in current configuration")
                 errorMessage = "No subscription products are currently available. Please check back later."
             }
         } catch {
-            print("❌ Failed to load offerings: \(error)")
-            
-            // Check if it's a configuration error (no products in dashboard)
             let errorString = error.localizedDescription
             if errorString.contains("no App Store products registered") || errorString.contains("CONFIGURATION_ERROR") {
                 errorMessage = "Subscription products are being set up. Please check back soon!"
@@ -285,39 +229,21 @@ struct PaywallView: View {
         isLoading = false
     }
     
-    private func purchase(_ package: Package?) async {
+    private func purchase(_ package: Package) async {
         isPurchasing = true
         
         do {
-            let result: PurchaseResultData
-            
-            if let package = package {
-                result = try await Purchases.shared.purchase(package: package)
-            } else {
-                // Fallback: try to purchase the first available package
-                guard let offerings = offerings,
-                      let package = offerings.current?.availablePackages.first else {
-                    onPurchaseComplete(false, "No products available")
-                    isPurchasing = false
-                    return
-                }
-                result = try await Purchases.shared.purchase(package: package)
-            }
+            let result = try await Purchases.shared.purchase(package: package)
             
             if result.customerInfo.entitlements["Simon Pro"]?.isActive == true {
-                // Purchase successful
                 await purchases.loadCustomerInfo()
                 onPurchaseComplete(true, "🎉 Welcome to Pro! You now have unlimited messages.")
             } else {
                 onPurchaseComplete(false, "Purchase completed but Pro status not activated. Please contact support.")
             }
         } catch let error as ErrorCode {
-            print("❌ Purchase failed: \(error)")
-            
-            // Handle specific RevenueCat errors
             switch error {
             case .purchaseCancelledError:
-                // User cancelled - don't show error
                 break
             case .productAlreadyPurchasedError:
                 onPurchaseComplete(false, "You already own this product. Try restoring purchases.")
@@ -327,7 +253,6 @@ struct PaywallView: View {
                 onPurchaseComplete(false, "Purchase failed: \(error.localizedDescription)")
             }
         } catch {
-            print("❌ Purchase failed: \(error)")
             onPurchaseComplete(false, "Purchase failed. Please try again.")
         }
         
@@ -346,7 +271,6 @@ struct PaywallView: View {
                 onPurchaseComplete(false, "No purchases found to restore.")
             }
         } catch {
-            print("❌ Restore failed: \(error)")
             onPurchaseComplete(false, "Failed to restore purchases. Please try again.")
         }
         
@@ -354,7 +278,9 @@ struct PaywallView: View {
     }
 }
 
-struct CompactFeatureItem: View {
+// MARK: - Compact Feature Component
+
+struct CompactFeature: View {
     let icon: String
     let title: String
     let color: Color
@@ -390,7 +316,9 @@ struct CompactFeatureItem: View {
     }
 }
 
-struct CompactProductItem: View {
+// MARK: - Compact Product Card Component
+
+struct CompactProductCard: View {
     let package: Package
     let isSelected: Bool
     let isPurchasing: Bool
@@ -564,4 +492,13 @@ struct CompactProductItem: View {
         .scaleEffect(isSelected ? 1.02 : 1.0)
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
     }
+}
+
+#Preview {
+    OnboardingPaywallView(
+        onDismiss: {},
+        onPurchaseComplete: { _, _ in }
+    )
+    .environmentObject(ThemeStore())
+    .environmentObject(PurchasesService())
 }

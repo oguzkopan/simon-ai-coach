@@ -27,14 +27,17 @@ type CoachStats struct {
 
 // Session represents a coaching conversation
 type Session struct {
-	ID        string    `firestore:"id" json:"id"`
-	UID       string    `firestore:"uid" json:"uid"`
-	CoachID   *string   `firestore:"coach_id,omitempty" json:"coach_id,omitempty"`
-	CoachName string    `firestore:"coach_name,omitempty" json:"coach_name,omitempty"`
-	Title     string    `firestore:"title" json:"title"`
-	Mode      string    `firestore:"mode" json:"mode"` // "quick" | "system" | "deep"
-	CreatedAt time.Time `firestore:"created_at" json:"created_at"`
-	UpdatedAt time.Time `firestore:"updated_at" json:"updated_at"`
+	ID               string    `firestore:"id" json:"id"`
+	UID              string    `firestore:"uid" json:"uid"`
+	CoachID          *string   `firestore:"coach_id,omitempty" json:"coach_id,omitempty"`
+	CoachName        string    `firestore:"coach_name,omitempty" json:"coach_name,omitempty"`
+	Title            string    `firestore:"title" json:"title"`
+	Mode             string    `firestore:"mode" json:"mode"` // "quick" | "system" | "deep"
+	MessageCount     int       `firestore:"message_count" json:"message_count"`                     // Total messages (user + assistant)
+	UserMessageCount int       `firestore:"user_message_count" json:"user_message_count"`           // User messages only (for limit enforcement)
+	ContextEnabled   bool      `firestore:"context_enabled" json:"context_enabled"`                 // Whether context was enabled when session was created
+	CreatedAt        time.Time `firestore:"created_at" json:"created_at"`
+	UpdatedAt        time.Time `firestore:"updated_at" json:"updated_at"`
 }
 
 // Message represents a single message in a conversation
@@ -114,8 +117,61 @@ type User struct {
 	Commitments       []Commitment       `firestore:"commitments,omitempty" json:"commitments,omitempty"`
 	SavedCoaches      []string           `firestore:"saved_coaches,omitempty" json:"saved_coaches,omitempty"`
 	SubscriptionCache *SubscriptionCache `firestore:"subscription_cache,omitempty" json:"subscription_cache,omitempty"`
+	// Structured memory fields (new approach)
+	Memory            *UserMemory        `firestore:"memory,omitempty" json:"memory,omitempty"`
 	CreatedAt         time.Time          `firestore:"created_at" json:"created_at"`
 	UpdatedAt         time.Time          `firestore:"updated_at" json:"updated_at"`
+}
+
+// UserMemory represents structured user memory
+type UserMemory struct {
+	Values      []MemoryItem `firestore:"values,omitempty" json:"values,omitempty"`
+	Goals       []Goal       `firestore:"goals,omitempty" json:"goals,omitempty"`
+	Constraints []MemoryItem `firestore:"constraints,omitempty" json:"constraints,omitempty"`
+	Projects    []Project    `firestore:"projects,omitempty" json:"projects,omitempty"`
+	Insights    []Insight    `firestore:"insights,omitempty" json:"insights,omitempty"`
+	Summary     string       `firestore:"summary,omitempty" json:"summary,omitempty"` // AI-generated summary
+	UpdatedAt   time.Time    `firestore:"updated_at" json:"updated_at"`
+}
+
+// MemoryItem represents a single memory entry (value, constraint, etc.)
+type MemoryItem struct {
+	ID        string    `firestore:"id" json:"id"`
+	Text      string    `firestore:"text" json:"text"`
+	CreatedAt time.Time `firestore:"created_at" json:"created_at"`
+	UpdatedAt time.Time `firestore:"updated_at" json:"updated_at"`
+	Source    string    `firestore:"source,omitempty" json:"source,omitempty"` // "user_input" | "coach_extracted" | session_id
+}
+
+// Goal represents a user goal with status tracking
+type Goal struct {
+	ID          string     `firestore:"id" json:"id"`
+	Text        string     `firestore:"text" json:"text"`
+	Status      string     `firestore:"status" json:"status"`                             // "active" | "completed" | "paused"
+	Priority    string     `firestore:"priority,omitempty" json:"priority,omitempty"`     // "high" | "medium" | "low"
+	CreatedAt   time.Time  `firestore:"created_at" json:"created_at"`
+	UpdatedAt   time.Time  `firestore:"updated_at" json:"updated_at"`
+	CompletedAt *time.Time `firestore:"completed_at,omitempty" json:"completed_at,omitempty"`
+	Source      string     `firestore:"source,omitempty" json:"source,omitempty"`
+}
+
+// Project represents an active project
+type Project struct {
+	ID          string    `firestore:"id" json:"id"`
+	Name        string    `firestore:"name" json:"name"`
+	Description string    `firestore:"description,omitempty" json:"description,omitempty"`
+	Status      string    `firestore:"status" json:"status"` // "active" | "completed" | "on_hold"
+	CreatedAt   time.Time `firestore:"created_at" json:"created_at"`
+	UpdatedAt   time.Time `firestore:"updated_at" json:"updated_at"`
+}
+
+// Insight represents a learned insight about the user
+type Insight struct {
+	ID        string    `firestore:"id" json:"id"`
+	Text      string    `firestore:"text" json:"text"`
+	Category  string    `firestore:"category,omitempty" json:"category,omitempty"` // "pattern" | "preference" | "strength" | "challenge"
+	CreatedAt time.Time `firestore:"created_at" json:"created_at"`
+	SessionID string    `firestore:"session_id,omitempty" json:"session_id,omitempty"`
 }
 
 // SubscriptionCache represents cached subscription data from RevenueCat
@@ -139,6 +195,8 @@ type Commitment struct {
 	Text      string    `firestore:"text" json:"text"`
 	CreatedAt time.Time `firestore:"created_at" json:"created_at"`
 	Status    string    `firestore:"status" json:"status"` // "active" | "completed" | "abandoned"
+	SessionID string    `firestore:"session_id,omitempty" json:"session_id,omitempty"`
+	CoachID   string    `firestore:"coach_id,omitempty" json:"coach_id,omitempty"`
 }
 
 // Plan represents a structured plan

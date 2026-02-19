@@ -2,8 +2,13 @@ import SwiftUI
 
 struct OnboardingView: View {
     @EnvironmentObject private var theme: ThemeStore
+    @EnvironmentObject private var purchases: PurchasesService
+    @StateObject private var authManager = AuthenticationManager.shared
     @State private var currentPage = 0
     @State private var isAnimating = false
+    @State private var showSignIn = false
+    @State private var showPaywall = false
+    @State private var onboardingCompleted = false
     let onComplete: () -> Void
     
     private let pages = OnboardingPage.pages
@@ -62,7 +67,7 @@ struct OnboardingView: View {
                         .cornerRadius(16)
                     }
                     
-                    Button(action: onComplete) {
+                    Button(action: handleSkip) {
                         Text("Skip")
                             .font(theme.font(15))
                             .foregroundColor(.secondary)
@@ -85,6 +90,30 @@ struct OnboardingView: View {
                 isAnimating = true
             }
         }
+        .fullScreenCover(isPresented: $showSignIn) {
+            OnboardingSignInView(
+                onSkip: {
+                    showSignIn = false
+                    showPaywall = true
+                },
+                onSignInComplete: {
+                    showSignIn = false
+                    showPaywall = true
+                }
+            )
+        }
+        .fullScreenCover(isPresented: $showPaywall) {
+            OnboardingPaywallView(
+                onDismiss: {
+                    showPaywall = false
+                    onComplete()
+                },
+                onPurchaseComplete: { success, message in
+                    showPaywall = false
+                    onComplete()
+                }
+            )
+        }
     }
     
     private func handleContinue() {
@@ -93,8 +122,16 @@ struct OnboardingView: View {
                 currentPage += 1
             }
         } else {
-            onComplete()
+            // Onboarding screens completed, show sign-in
+            onboardingCompleted = true
+            showSignIn = true
         }
+    }
+    
+    private func handleSkip() {
+        // Even if user skips, show sign-in and paywall
+        onboardingCompleted = true
+        showSignIn = true
     }
 }
 

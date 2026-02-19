@@ -69,6 +69,12 @@ func New(cfg config.Config, fs *firestore.Client, gm *gemini.Client) (*gin.Engin
 		v1.GET("/context", handlers.GetContext(fs))
 		v1.PUT("/context", handlers.UpdateContext(fs))
 		v1.PUT("/context/preference", handlers.UpdateContextPreference(fs))
+		
+		// Memory endpoints (structured memory)
+		v1.GET("/memory", handlers.GetMemory(fs))
+		v1.PUT("/memory", handlers.UpdateMemory(fs))
+		v1.POST("/memory/goals", handlers.AddGoal(fs))
+		v1.PUT("/memory/goals/:id/status", handlers.UpdateGoalStatus(fs))
 
 		// Coach endpoints (to be implemented in Week 1 Day 5-7)
 		v1.POST("/coaches", handlers.CreateCoach(fs, gm))

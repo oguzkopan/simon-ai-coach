@@ -254,15 +254,15 @@ struct CoachDetailView: View {
         }
         
         do {
-            _ = try await apiClient.getContext()
-            // Get user preferences - we'll need to add this to the API
-            // For now, default to true
+            let contextData = try await apiClient.getContext()
             await MainActor.run {
-                includeContext = true
+                // Use the preference from backend, default to true if not set
+                includeContext = contextData.preferences?.includeContext ?? true
                 isLoadingPreference = false
             }
         } catch {
             await MainActor.run {
+                // Default to true on error
                 includeContext = true
                 isLoadingPreference = false
             }

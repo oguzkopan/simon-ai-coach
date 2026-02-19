@@ -3,6 +3,7 @@ package context
 import (
 	"context"
 	"fmt"
+	"time"
 
 	fsClient "simon-backend/internal/firestore"
 	"simon-backend/internal/gemini"
@@ -277,43 +278,130 @@ func (cb *ContextBuilder) buildUserContextSummary(user *models.User) string {
 
 	summary := ""
 
-	// Add values
-	if len(user.ContextVault.Values) > 0 {
-		summary += "**User's Core Values:**\n"
-		for _, value := range user.ContextVault.Values {
-			summary += fmt.Sprintf("- %s\n", value)
+	// Prioritize structured memory if available
+	if user.Memory != nil && user.Memory.UpdatedAt.After(time.Time{}) {
+		// Use AI-generated summary if available
+		if user.Memory.Summary != "" {
+			summary += "## User Profile\n\n"
+			summary += user.Memory.Summary + "\n\n"
 		}
-		summary += "\n"
+
+		// Add structured values
+		if len(user.Memory.Values) > 0 {
+			summary += "**Core Values:**\n"
+			for _, value := range user.Memory.Values {
+				summary += fmt.Sprintf("- %s\n", value.Text)
+			}
+			summary += "\n"
+		}
+
+		// Add active goals with priority
+		activeGoals := []models.Goal{}
+		for _, goal := range user.Memory.Goals {
+			if goal.Status == "active" {
+				activeGoals = append(activeGoals, goal)
+			}
+		}
+		if len(activeGoals) > 0 {
+			summary += "**Current Goals:**\n"
+			for _, goal := range activeGoals {
+				priorityTag := ""
+				if goal.Priority != "" {
+					priorityTag = fmt.Sprintf(" [%s priority]", goal.Priority)
+				}
+				summary += fmt.Sprintf("- %s%s\n", goal.Text, priorityTag)
+			}
+			summary += "\n"
+		}
+
+		// Add active projects
+		activeProjects := []models.Project{}
+		for _, project := range user.Memory.Projects {
+			if project.Status == "active" {
+				activeProjects = append(activeProjects, project)
+			}
+		}
+		if len(activeProjects) > 0 {
+			summary += "**Active Projects:**\n"
+			for _, project := range activeProjects {
+				if project.Description != "" {
+					summary += fmt.Sprintf("- %s: %s\n", project.Name, project.Description)
+				} else {
+					summary += fmt.Sprintf("- %s\n", project.Name)
+				}
+			}
+			summary += "\n"
+		}
+
+		// Add constraints
+		if len(user.Memory.Constraints) > 0 {
+			summary += "**Constraints & Considerations:**\n"
+			for _, constraint := range user.Memory.Constraints {
+				summary += fmt.Sprintf("- %s\n", constraint.Text)
+			}
+			summary += "\n"
+		}
+
+		// Add recent insights (last 5)
+		if len(user.Memory.Insights) > 0 {
+			summary += "**Recent Insights:**\n"
+			count := len(user.Memory.Insights)
+			start := 0
+			if count > 5 {
+				start = count - 5
+			}
+			for i := start; i < count; i++ {
+				insight := user.Memory.Insights[i]
+				summary += fmt.Sprintf("- %s\n", insight.Text)
+			}
+			summary += "\n"
+		}
+	} else {
+		// Fallback to old context vault structure
+		// Add values
+		if len(user.ContextVault.Values) > 0 {
+			summary += "**User's Core Values:**\n"
+			for _, value := range user.ContextVault.Values {
+				summary += fmt.Sprintf("- %s\n", value)
+			}
+			summary += "\n"
+		}
+
+		// Add goals
+		if len(user.ContextVault.Goals) > 0 {
+			summary += "**Current Goals:**\n"
+			for _, goal := range user.ContextVault.Goals {
+				summary += fmt.Sprintf("- %s\n", goal)
+			}
+			summary += "\n"
+		}
+
+		// Add constraints
+		if len(user.ContextVault.Constraints) > 0 {
+			summary += "**Constraints & Considerations:**\n"
+			for _, constraint := range user.ContextVault.Constraints {
+				summary += fmt.Sprintf("- %s\n", constraint)
+			}
+			summary += "\n"
+		}
+
+		// Add current projects
+		if len(user.ContextVault.CurrentProjects) > 0 {
+			summary += "**Current Projects:**\n"
+			for _, project := range user.ContextVault.CurrentProjects {
+				summary += fmt.Sprintf("- %s\n", project)
+			}
+			summary += "\n"
+		}
+
+		// Add memory summary if available (old field)
+		if user.MemorySummary != "" {
+			summary += "**Recent Context:**\n"
+			summary += user.MemorySummary + "\n\n"
+		}
 	}
 
-	// Add goals
-	if len(user.ContextVault.Goals) > 0 {
-		summary += "**Current Goals:**\n"
-		for _, goal := range user.ContextVault.Goals {
-			summary += fmt.Sprintf("- %s\n", goal)
-		}
-		summary += "\n"
-	}
-
-	// Add constraints
-	if len(user.ContextVault.Constraints) > 0 {
-		summary += "**Constraints & Considerations:**\n"
-		for _, constraint := range user.ContextVault.Constraints {
-			summary += fmt.Sprintf("- %s\n", constraint)
-		}
-		summary += "\n"
-	}
-
-	// Add current projects
-	if len(user.ContextVault.CurrentProjects) > 0 {
-		summary += "**Current Projects:**\n"
-		for _, project := range user.ContextVault.CurrentProjects {
-			summary += fmt.Sprintf("- %s\n", project)
-		}
-		summary += "\n"
-	}
-
-	// Add active commitments
+	// Add active commitments (works with both old and new structure)
 	activeCommitments := []models.Commitment{}
 	for _, commitment := range user.Commitments {
 		if commitment.Status == "active" {
@@ -326,12 +414,6 @@ func (cb *ContextBuilder) buildUserContextSummary(user *models.User) string {
 			summary += fmt.Sprintf("- %s\n", commitment.Text)
 		}
 		summary += "\n"
-	}
-
-	// Add memory summary if available
-	if user.MemorySummary != "" {
-		summary += "**Recent Context:**\n"
-		summary += user.MemorySummary + "\n\n"
 	}
 
 	if summary == "" {

@@ -575,7 +575,9 @@ struct ChatView: View {
                     
                     // Reload message count after purchase
                     if success {
-                        viewModel.loadMessageCount()
+                        Task {
+                            await viewModel.loadMessageCount()
+                        }
                     }
                     
                     // Auto-dismiss success message after 3 seconds

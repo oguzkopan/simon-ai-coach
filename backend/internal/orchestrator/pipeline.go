@@ -165,16 +165,15 @@ func (p *Pipeline) Execute(ctx context.Context, input PipelineInput) (*PipelineO
 			}
 		}
 
-		// Step 6: Memory Agent - TEMPORARILY DISABLED
-		// TODO: Re-enable after implementing proper structured extraction with function calling
-		// The current implementation saves garbage commitments (empty strings, malformed JSON)
-		// go func() {
-		// 	if err := p.memoryAgent.Update(context.Background(), input.SessionID, input.UID, coachOutput); err != nil {
-		// 		// Log error but don't fail the request
-		// 		fmt.Printf("Memory update failed: %v\n", err)
-		// 	}
-		// }()
-		fmt.Printf("Memory agent disabled - will re-enable with function calling\n")
+		// Step 6: Memory Agent - Update user memory asynchronously
+		go func() {
+			if err := p.memoryAgent.Update(context.Background(), input.SessionID, input.UID, input.CoachID, coachOutput); err != nil {
+				// Log error but don't fail the request
+				log.Printf("Memory update failed: %v", err)
+			} else {
+				log.Printf("Memory updated successfully for user %s", input.UID)
+			}
+		}()
 
 		// Send completion event
 		stream <- SSEEvent{

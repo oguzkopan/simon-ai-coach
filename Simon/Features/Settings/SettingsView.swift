@@ -156,6 +156,10 @@ struct SettingsView: View {
             }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: showPurchaseResult)
+        .task {
+            // Refresh subscription status from RevenueCat when view appears
+            await purchases.loadCustomerInfo()
+        }
     }
         
     private var signInSection: some View {

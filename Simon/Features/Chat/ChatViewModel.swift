@@ -145,55 +145,60 @@ final class ChatViewModel: ObservableObject {
     }
     
     // Load message count for unsubscribed users
-    func loadMessageCount() {
+    func loadMessageCount(from session: Session? = nil) async {
         guard let isPro = purchasesService?.isPro else {
-            // If purchasesService is not available, assume free user
-            let key = "message_count_\(sessionID)"
-            let count = UserDefaults.standard.integer(forKey: key)
-            remainingMessages = max(0, 3 - count)
-            hasReachedMessageLimit = remainingMessages <= 0
-            print("📊 Message count loaded (no service): \(count)/3, remaining: \(remainingMessages)")
+            remainingMessages = 3
+            hasReachedMessageLimit = false
             return
         }
         
         if isPro {
             // Pro users have unlimited messages
-            remainingMessages = -1
-            hasReachedMessageLimit = false
+            await MainActor.run {
+                remainingMessages = -1
+                hasReachedMessageLimit = false
+            }
             print("📊 Pro user detected - unlimited messages")
             return
         }
         
-        // Get message count for this session
-        let key = "message_count_\(sessionID)"
-        let count = UserDefaults.standard.integer(forKey: key)
-        remainingMessages = max(0, 3 - count)
-        hasReachedMessageLimit = remainingMessages <= 0
+        // Load actual message count from session
+        if let session = session, let userMsgCount = session.userMessageCount {
+            await MainActor.run {
+                remainingMessages = max(0, 3 - userMsgCount)
+                hasReachedMessageLimit = remainingMessages <= 0
+                print("📊 Message count loaded from session: \(userMsgCount)/3, remaining: \(remainingMessages)")
+            }
+            return
+        }
         
-        print("📊 Message count loaded: \(count)/3, remaining: \(remainingMessages), isPro: \(isPro)")
+        // Fallback: Load from backend
+        do {
+            let detail = try await apiClient.getSession(id: sessionID)
+            let userMsgCount = detail.session.userMessageCount ?? 0
+            
+            await MainActor.run {
+                remainingMessages = max(0, 3 - userMsgCount)
+                hasReachedMessageLimit = remainingMessages <= 0
+                print("📊 Message count loaded from backend: \(userMsgCount)/3, remaining: \(remainingMessages)")
+            }
+        } catch {
+            // Final fallback: Count messages manually
+            await MainActor.run {
+                let userMsgCount = messages.filter { $0.role == "user" }.count
+                remainingMessages = max(0, 3 - userMsgCount)
+                hasReachedMessageLimit = remainingMessages <= 0
+                print("📊 Message count calculated from messages: \(userMsgCount)/3, remaining: \(remainingMessages)")
+            }
+        }
     }
     
     // Update purchases service reference (called when subscription status changes)
     func updatePurchasesService(_ service: PurchasesService) {
         self.purchasesService = service
-        loadMessageCount()
-    }
-    
-    // Increment message count for unsubscribed users
-    private func incrementMessageCount() {
-        guard let isPro = purchasesService?.isPro, !isPro else {
-            return
+        Task {
+            await loadMessageCount()
         }
-        
-        let key = "message_count_\(sessionID)"
-        let count = UserDefaults.standard.integer(forKey: key)
-        let newCount = count + 1
-        UserDefaults.standard.set(newCount, forKey: key)
-        
-        remainingMessages = max(0, 3 - newCount)
-        hasReachedMessageLimit = remainingMessages <= 0
-        
-        print("📊 Message count incremented: \(newCount)/3, remaining: \(remainingMessages)")
     }
     
     func loadMessages() async {
@@ -267,6 +272,9 @@ final class ChatViewModel: ObservableObject {
             // Store session context for tool execution
             sessionUID = detail.session.uid
             sessionCoachID = detail.session.coachID
+            
+            // Load message count from session
+            await loadMessageCount(from: detail.session)
             
             isLoadingMessages = false
             hasCompletedInitialLoad = true // Mark as successfully loaded
@@ -409,9 +417,6 @@ final class ChatViewModel: ObservableObject {
             // 2. Add user message to UI
             // We use the same Task context so simple property access is safe, but explicit MainActor.run is better for updates
             await MainActor.run {
-                
-                // Increment message count for unsubscribed users
-                self.incrementMessageCount()
                 
                 // Log analytics
                 AnalyticsManager.shared.logMessageSent(

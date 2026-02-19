@@ -180,6 +180,35 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 			return
 		}
 
+		// Check message limit for free users
+		user, err := fs.GetUser(ctx, uid)
+		if err != nil {
+			log.Printf("Error getting user: %v", err)
+			sse.Event(c.Writer, "error", map[string]interface{}{
+				"code":    "USER_ERROR",
+				"message": "failed to get user",
+			})
+			flusher.Flush()
+			return
+		}
+
+		// Check if user is Pro (has unlimited_messages entitlement)
+		isPro := false
+		if user.SubscriptionCache != nil && user.SubscriptionCache.Entitlements != nil {
+			isPro = user.SubscriptionCache.Entitlements["unlimited_messages"]
+		}
+
+		// Enforce message limit for free users
+		if !isPro && session.UserMessageCount >= 3 {
+			log.Printf("❌ Message limit reached for user %s in session %s: %d/3", uid, sessionID, session.UserMessageCount)
+			sse.Event(c.Writer, "error", map[string]interface{}{
+				"code":    "MESSAGE_LIMIT_REACHED",
+				"message": "You've reached your message limit for this session. Upgrade to Pro for unlimited messages.",
+			})
+			flusher.Flush()
+			return
+		}
+
 		// Get coach ID and voice config
 		coachID := ""
 		var coachVoiceConfig *models.VoiceConfig
@@ -381,9 +410,11 @@ func StreamChat(fs *fsClient.Client, gm *geminiClient.Client, cfg config.Config)
 			return
 		}
 
-		// Update session timestamp and title (if still "New Session")
+		// Update session timestamp, title, and message counts
 		updates := []firestore.Update{
 			{Path: "updated_at", Value: time.Now()},
+			{Path: "message_count", Value: firestore.Increment(1)},
+			{Path: "user_message_count", Value: firestore.Increment(1)},
 		}
 
 		// If session title is still "New Session", generate a better title from the first message

@@ -9,6 +9,7 @@ import SwiftUI
 
 struct RootView: View {
     @StateObject private var authManager = AuthenticationManager.shared
+    @StateObject private var purchasesService = PurchasesService()
     @EnvironmentObject private var theme: ThemeStore
     @EnvironmentObject private var deepLinkHandler: DeepLinkHandler
     
@@ -33,6 +34,7 @@ struct RootView: View {
                         showOnboarding = false
                     }
                 }
+                .environmentObject(purchasesService)
             } else if authManager.isAuthenticated {
                 // Main app (will be implemented in Day 5-7)
                 MainTabView()

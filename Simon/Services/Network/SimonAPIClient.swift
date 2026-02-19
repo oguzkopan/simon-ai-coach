@@ -13,6 +13,11 @@ struct UserContextData: Codable {
     var goals: [String]
     var constraints: [String]
     var currentProjects: [String]
+    var preferences: UserPreferences?
+}
+
+struct UserPreferences: Codable {
+    var includeContext: Bool
 }
 
 struct AvatarGenerationResponse: Codable {

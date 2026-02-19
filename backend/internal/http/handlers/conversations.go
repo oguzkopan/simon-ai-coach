@@ -92,25 +92,40 @@ func CreateSession(fs *fsClient.Client) gin.HandlerFunc {
 			coachName = coach.Title
 		}
 
+		// Get user to check context preference
+		user, err := fs.GetUser(ctx, uid)
+		if err != nil {
+			log.Printf("Warning: Could not get user for context preference: %v", err)
+			// Continue anyway with default
+		}
+
 		// Create session
 		var coachIDPtr *string
 		if req.CoachID != "" {
 			coachIDPtr = &req.CoachID
 		}
 
+		contextEnabled := true // Default
+		if user != nil {
+			contextEnabled = user.Preferences.IncludeContext
+		}
+
 		session := models.Session{
-			ID:        uuid.New().String(),
-			UID:       uid,
-			CoachID:   coachIDPtr,
-			CoachName: coachName,
-			Title:     "New Session",
-			Mode:      "quick",
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+			ID:               uuid.New().String(),
+			UID:              uid,
+			CoachID:          coachIDPtr,
+			CoachName:        coachName,
+			Title:            "New Session",
+			Mode:             "quick",
+			MessageCount:     0,
+			UserMessageCount: 0,
+			ContextEnabled:   contextEnabled,
+			CreatedAt:        time.Now(),
+			UpdatedAt:        time.Now(),
 		}
 
 		// Save to Firestore
-		_, err := fs.DB.Collection("sessions").Doc(session.ID).Set(ctx, session)
+		_, err = fs.DB.Collection("sessions").Doc(session.ID).Set(ctx, session)
 		if err != nil {
 			log.Printf("Error creating session: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create session"})
@@ -158,6 +173,9 @@ func GetSession(fs *fsClient.Client) gin.HandlerFunc {
 		defer messagesIter.Stop()
 
 		var messages []models.Message
+		userMessageCount := 0
+		totalMessageCount := 0
+		
 		for {
 			msgDoc, err := messagesIter.Next()
 			if err == iterator.Done {
@@ -174,6 +192,25 @@ func GetSession(fs *fsClient.Client) gin.HandlerFunc {
 				continue
 			}
 			messages = append(messages, msg)
+			totalMessageCount++
+			if msg.Role == "user" {
+				userMessageCount++
+			}
+		}
+
+		// Migration: If session doesn't have message counts, populate them
+		if session.MessageCount == 0 && totalMessageCount > 0 {
+			log.Printf("📊 Migrating message counts for session %s: total=%d, user=%d", sessionID, totalMessageCount, userMessageCount)
+			_, err := fs.DB.Collection("sessions").Doc(sessionID).Update(ctx, []firestore.Update{
+				{Path: "message_count", Value: totalMessageCount},
+				{Path: "user_message_count", Value: userMessageCount},
+			})
+			if err != nil {
+				log.Printf("Warning: Failed to migrate message counts: %v", err)
+			} else {
+				session.MessageCount = totalMessageCount
+				session.UserMessageCount = userMessageCount
+			}
 		}
 
 		c.JSON(http.StatusOK, gin.H{
