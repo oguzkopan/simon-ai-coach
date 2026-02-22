@@ -6,6 +6,7 @@ struct OnboardingView: View {
     @StateObject private var authManager = AuthenticationManager.shared
     @State private var currentPage = 0
     @State private var isAnimating = false
+    @State private var showAIConsent = false
     @State private var showSignIn = false
     @State private var showPaywall = false
     @State private var onboardingCompleted = false
@@ -90,6 +91,14 @@ struct OnboardingView: View {
                 isAnimating = true
             }
         }
+        .fullScreenCover(isPresented: $showAIConsent) {
+            AIConsentView(
+                onAccept: {
+                    showAIConsent = false
+                    showSignIn = true
+                }
+            )
+        }
         .fullScreenCover(isPresented: $showSignIn) {
             OnboardingSignInView(
                 onSkip: {
@@ -122,16 +131,16 @@ struct OnboardingView: View {
                 currentPage += 1
             }
         } else {
-            // Onboarding screens completed, show sign-in
+            // Onboarding screens completed, show AI consent first
             onboardingCompleted = true
-            showSignIn = true
+            showAIConsent = true
         }
     }
     
     private func handleSkip() {
-        // Even if user skips, show sign-in and paywall
+        // Even if user skips, show AI consent and sign-in
         onboardingCompleted = true
-        showSignIn = true
+        showAIConsent = true
     }
 }
 

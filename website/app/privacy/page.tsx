@@ -194,13 +194,51 @@ const sections = [
     ],
   },
   {
-    icon: Lock,
-    title: "How We Protect Your Information",
+    icon: FileText,
+    title: "Third-Party AI Services and Data Sharing",
     content: [
       {
-        text: "We implement industry-standard security measures:",
+        subtitle: "AI Processing Services",
+        text: "Saimon uses third-party AI services to provide coaching features. When you use the app, your data is shared with:",
+      },
+      {
+        subtitle: "Google Vertex AI (Gemini)",
+        text: "We send the following data to Google's Vertex AI service:",
         list: [
-          "TLS 1.3 encryption for all network traffic",
+          "Your coaching messages and conversations",
+          "Voice recordings (transcribed to text)",
+          "Uploaded images and documents",
+          "Coach configurations and system prompts",
+        ],
+      },
+      {
+        text: "Google Vertex AI processes this data to generate personalized coaching responses. Google's data processing is governed by their Cloud Data Processing Addendum and they do not use your data to train their models or for any purpose other than providing the service to us.",
+      },
+      {
+        subtitle: "ElevenLabs (Text-to-Speech)",
+        text: "When you enable voice-over features, we send:",
+        list: [
+          "Coach response text (to generate speech)",
+          "Voice ID and settings",
+        ],
+      },
+      {
+        text: "ElevenLabs processes this data solely to generate natural-sounding speech audio. They do not store or use your data for other purposes.",
+      },
+      {
+        subtitle: "Your Consent",
+        text: "By using Saimon, you explicitly consent to sharing your data with these AI service providers. You can review this consent at any time in Settings → Privacy. If you do not consent, the core coaching features of the app will not function.",
+      },
+    ],
+  },
+  {
+    icon: Lock,
+    title: "Data Security and Encryption",
+    content: [
+      {
+        text: "All data transmitted to third-party AI services is encrypted using TLS 1.3. We implement industry-standard security measures:",
+        list: [
+          "End-to-end encryption for all network traffic",
           "Firebase Authentication with secure token management",
           "Encrypted storage in Google Cloud Firestore",
           "Regular security audits and updates",
@@ -214,16 +252,13 @@ const sections = [
   },
   {
     icon: FileText,
-    title: "Data Sharing and Third Parties",
+    title: "Other Service Providers",
     content: [
       {
-        subtitle: "Service Providers",
-        text: "We share data with trusted service providers who help us operate the app:",
+        text: "In addition to AI services, we share data with trusted service providers:",
         list: [
           "Google Cloud Platform (hosting and database)",
           "Firebase (authentication and storage)",
-          "Vertex AI (AI model processing)",
-          "ElevenLabs (text-to-speech)",
           "RevenueCat (subscription management)",
         ],
       },
